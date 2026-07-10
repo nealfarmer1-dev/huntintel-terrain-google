@@ -7,7 +7,14 @@ export interface TerrainAnalysisRequest {
   jobId?: string;
   userId?: string;
   propertyId?: string;
-  species: "whitetail";
+  analysisMode:
+    | "whitetail"
+    | "turkey"
+    | "elk"
+    | "wild_hog"
+    | "search_and_rescue"
+    | "military_terrain";
+  species?: "whitetail" | "turkey" | "elk" | "wild_hog" | null;
   saveResults?: boolean;
   polygon: {
     type: "Polygon";
@@ -80,6 +87,8 @@ export interface TerrainSummary {
 export interface TerrainAnalysisResponse {
   jobId: string;
   analysisJobId: string | null;
+  analysisMode?: TerrainAnalysisRequest["analysisMode"];
+  species?: TerrainAnalysisRequest["species"];
   persisted: boolean;
   status: "complete" | "processing" | "error";
   summary: TerrainSummary;

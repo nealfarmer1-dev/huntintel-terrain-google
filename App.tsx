@@ -17,6 +17,14 @@ const MIN_ACRES = 5;
 const MAX_ACRES = 5000;
 const MAP_WIDTH = 320;
 const MAP_HEIGHT = 260;
+const ANALYSIS_MODE_OPTIONS = [
+  { value: "whitetail", label: "Whitetail" },
+  { value: "turkey", label: "Turkey" },
+  { value: "elk", label: "Elk" },
+  { value: "wild_hog", label: "Wild Hog" },
+  { value: "search_and_rescue", label: "Search and Rescue" },
+  { value: "military_terrain", label: "Terrain Assessment" },
+] as const;
 
 type Screen = "setup" | "processing" | "results" | "report" | "waypoint";
 type MapPoint = { longitude: number; latitude: number };
@@ -25,9 +33,18 @@ function sortWaypoints(waypoints: TerrainWaypoint[]) {
   return [...waypoints].sort((left, right) => right.score - left.score);
 }
 
+function isWildlifeMode(analysisMode: string) {
+  return ["whitetail", "turkey", "elk", "wild_hog"].includes(analysisMode);
+}
+
+function analysisModeLabel(value: string | undefined) {
+  return ANALYSIS_MODE_OPTIONS.find((option) => option.value === value)?.label || value || "Unknown";
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("setup");
   const [analysisName, setAnalysisName] = useState("Weekend Test Property");
+  const [analysisMode, setAnalysisMode] = useState<(typeof ANALYSIS_MODE_OPTIONS)[number]["value"]>("whitetail");
   const [savedAnalysisId, setSavedAnalysisId] = useState("");
   const [points, setPoints] = useState<MapPoint[]>(samplePoints());
   const [analysis, setAnalysis] = useState<TerrainAnalysisResponse | null>(null);
@@ -71,7 +88,8 @@ export default function App() {
       setError("");
       setScreen("processing");
       const nextAnalysis = await createAnalysis({
-        species: "whitetail",
+        analysisMode,
+        species: isWildlifeMode(analysisMode) ? analysisMode : null,
         saveResults: true,
         propertyId: analysisName,
         polygon,
@@ -134,7 +152,17 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Analysis Setup</Text>
             <TextInput style={styles.input} value={analysisName} onChangeText={setAnalysisName} placeholder="Property name" placeholderTextColor="#7f8d7a" />
-            <Text style={styles.meta}>Species: whitetail</Text>
+            <Text style={styles.meta}>Analysis mode: {analysisModeLabel(analysisMode)}</Text>
+            <View style={styles.row}>
+              {ANALYSIS_MODE_OPTIONS.map((option) => (
+                <ActionButton
+                  key={option.value}
+                  label={option.label}
+                  onPress={() => setAnalysisMode(option.value)}
+                  primary={analysisMode === option.value}
+                />
+              ))}
+            </View>
             <Text style={[styles.meta, isValid ? styles.success : styles.error]}>
               {polygon ? `${acreage.toLocaleString()} acres` : "Tap the terrain canvas to add polygon points."}
             </Text>
@@ -169,6 +197,7 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Results</Text>
             <Text style={styles.meta}>Saved analysis: {analysis.analysisJobId || "not persisted"}</Text>
+            <Text style={styles.meta}>Mode: {analysisModeLabel(analysis.analysisMode)}</Text>
             {renderMap()}
             <Text style={styles.metric}>Approximate acreage: {Number(analysis.summary?.approximateAcreage || acreage).toLocaleString()} acres</Text>
             <Text style={styles.metric}>Features: {analysis.features.length}</Text>
