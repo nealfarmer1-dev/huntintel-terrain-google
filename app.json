@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "HuntIntel Terrain Google",
+    "slug": "huntintel-terrain-google",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.huntintel.terrain.google"
+    }
+  }
+}
