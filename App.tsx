@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { WebView } from "react-native-webview";
 import {
   Pressable,
   SafeAreaView,
@@ -11,12 +12,16 @@ import {
 
 import { createAnalysis, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
+import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 5000;
 const MAP_WIDTH = 320;
 const MAP_HEIGHT = 260;
+const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken((globalThis as any).process?.env || {});
+const HAS_MAPBOX_ACCESS_TOKEN = MAPBOX_ACCESS_TOKEN.length > 0;
+
 const ANALYSIS_MODE_OPTIONS = [
   { value: "whitetail", label: "Whitetail" },
   { value: "turkey", label: "Turkey" },
@@ -41,6 +46,46 @@ function analysisModeLabel(value: string | undefined) {
   return ANALYSIS_MODE_OPTIONS.find((option) => option.value === value)?.label || value || "Unknown";
 }
 
+function safeJson(value: unknown) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable }: any) {
+  const style = mapboxStyleFor(basemap);
+  const center = polygon?.coordinates?.[0]?.[0] || [-87.0, 32.6];
+  const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
+<style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button><button class="view-btn" id="locate-me">LOC</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js"></script><script>(function(){
+mapboxgl.accessToken=${safeJson(token)};
+const polygon=${safeJson(polygon)};
+const features=${safeJson(features || [])};
+const waypoints=${safeJson(waypoints || [])};
+const style=${safeJson(style)};
+const overlay=${safeJson(overlay || null)};
+const labelsVisible=${safeJson(labelsVisible)};
+const editable=${safeJson(editable)};
+const map=new mapboxgl.Map({container:'map',style:style,center:centerSafe(),zoom:13,projection:'mercator'});
+map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}),'top-right');
+let terrainEnabled=false;
+function post(type,payload){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type,payload}));}
+function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinates[0]&&polygon.coordinates[0][0]||${safeJson(center)}}catch(e){return ${safeJson(center)}}}
+function ensureDem(){if(map.getSource('mapbox-dem'))return true;try{map.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1',tileSize:512,maxzoom:14});return true}catch(e){return false}}
+function set3d(next){terrainEnabled=!!next;if(terrainEnabled&&ensureDem()){map.setTerrain({source:'mapbox-dem',exaggeration:1.45});map.easeTo({pitch:60,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.add('active');return}try{map.setTerrain(null)}catch(e){}map.easeTo({pitch:0,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.remove('active')}
+document.getElementById('toggle-3d').onclick=function(e){e.stopPropagation();set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){e.stopPropagation();map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){e.stopPropagation();map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){e.stopPropagation();map.easeTo({bearing:0,duration:450})};document.getElementById('locate-me').onclick=function(e){e.stopPropagation();if(!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(function(pos){var lng=pos.coords.longitude,lat=pos.coords.latitude;if(!map.getSource('user-location')){map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':7,'circle-color':'#5aa7ff','circle-stroke-color':'#fff','circle-stroke-width':3}})}map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]},properties:{}}]});map.easeTo({center:[lng,lat],zoom:15,duration:500})})};
+function fc(items){return{type:'FeatureCollection',features:(items||[]).filter(function(i){return i&&i.geometry}).map(function(i){return{type:'Feature',geometry:i.geometry,properties:i}})}}
+function addLayers(){if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay',{type:'raster',tiles:['${USGS_3DEP_WMS_BASE}?service=WMS&version=1.1.1&request=GetMap&layers='+encodeURIComponent(overlay.layer)+'&styles=&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256'],tileSize:256,attribution:'USGS 3DEP / The National Map'});map.addLayer({id:'usgs-3dep-overlay',type:'raster',source:'usgs-3dep-overlay',paint:{'raster-opacity':overlay.value==='hillshade'?.62:.78}})}
+if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{}}]}});map.addLayer({id:'analysis-polygon-fill',type:'fill',source:'analysis-polygon',paint:{'fill-color':'#d0a65d','fill-opacity':.18}});map.addLayer({id:'analysis-polygon-line',type:'line',source:'analysis-polygon',paint:{'line-color':'#f0d293','line-width':3}})}
+map.addSource('analysis-features',{type:'geojson',data:fc(features)});map.addLayer({id:'analysis-features-circle',type:'circle',source:'analysis-features',paint:{'circle-color':'#d0a65d','circle-radius':7,'circle-stroke-color':'#10140f','circle-stroke-width':2}});map.addSource('analysis-waypoints',{type:'geojson',data:fc(waypoints)});map.addLayer({id:'analysis-waypoints-circle',type:'circle',source:'analysis-waypoints',paint:{'circle-color':'#89b37f','circle-radius':7,'circle-stroke-color':'#e6c27a','circle-stroke-width':2}});
+if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
+try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);features.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});waypoints.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});if(any)map.fitBounds(b,{padding:45,maxZoom:15,duration:0})}catch(e){}
+}
+map.on('load',addLayers);map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+})();</script></body></html>`;
+}
+
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("setup");
   const [analysisName, setAnalysisName] = useState("Weekend Test Property");
@@ -50,6 +95,9 @@ export default function App() {
   const [analysis, setAnalysis] = useState<TerrainAnalysisResponse | null>(null);
   const [error, setError] = useState("");
   const [selectedWaypoint, setSelectedWaypoint] = useState<TerrainWaypoint | null>(null);
+  const [basemap, setBasemap] = useState("satellite");
+  const [terrainOverlay, setTerrainOverlay] = useState("");
+  const [labelsVisible, setLabelsVisible] = useState(true);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -87,13 +135,14 @@ export default function App() {
     try {
       setError("");
       setScreen("processing");
-      const nextAnalysis = await createAnalysis({
+      const nextAnalysis = await createAnalysis(buildAnalysisRequestPayload({
+        analysisName,
         analysisMode,
         species: isWildlifeMode(analysisMode) ? analysisMode : null,
         saveResults: true,
-        propertyId: analysisName,
+        propertyId: null,
         polygon,
-      });
+      }));
       setAnalysis(nextAnalysis);
       setSavedAnalysisId(nextAnalysis.analysisJobId || "");
       setScreen("results");
@@ -109,6 +158,37 @@ export default function App() {
     setPoints((current) => [...current, { longitude: Number(longitude.toFixed(6)), latitude: Number(latitude.toFixed(6)) }]);
   };
 
+  const addLngLatPoint = (point: MapPoint) => {
+    setPoints((current) => [...current, point]);
+  };
+
+  const handleMapMessage = (event: any) => {
+    try {
+      const message = JSON.parse(event.nativeEvent.data);
+      if (message.type === "map-click" && typeof message.payload?.longitude === "number" && typeof message.payload?.latitude === "number") {
+        addLngLatPoint(message.payload);
+      }
+    } catch {
+      // Ignore non-HuntIntel WebView messages.
+    }
+  };
+
+  const renderMapControls = () => (
+    <View style={styles.mapControlPanel}>
+      <Text style={styles.meta}>Basemap</Text>
+      <View style={styles.row}>
+        {MAPBOX_STYLE_OPTIONS.map((option: any) => <ActionButton key={option.value} label={option.label} onPress={() => setBasemap(option.value)} primary={basemap === option.value} />)}
+      </View>
+      <Text style={styles.meta}>USGS 3DEP overlay</Text>
+      <View style={styles.row}>
+        {USGS_TERRAIN_OVERLAY_OPTIONS.map((option: any) => <ActionButton key={option.value || "none"} label={option.label} onPress={() => setTerrainOverlay(option.value)} primary={terrainOverlay === option.value} />)}
+      </View>
+      <View style={styles.row}>
+        <ActionButton label="Labels" onPress={() => setLabelsVisible((current) => !current)} primary={labelsVisible} />
+      </View>
+    </View>
+  );
+
   const renderMap = () => {
     const nextPolygon = analysis?.summary ? polygon || buildPolygonFromPoints(samplePoints()) : polygon;
     if (!nextPolygon) {
@@ -119,9 +199,23 @@ export default function App() {
     const waypoints = sortWaypoints(analysis?.waypoints || []);
     const bounds = getBounds(nextPolygon, waypoints, features);
 
+    if (HAS_MAPBOX_ACCESS_TOKEN) {
+      return (
+        <View style={styles.mapWeb}>
+          <WebView
+            originWhitelist={["*"]}
+            geolocationEnabled
+            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable: screen === "setup" }) }}
+            onMessage={handleMapMessage}
+            style={styles.webView}
+          />
+        </View>
+      );
+    }
+
     return (
       <Pressable style={styles.map} onPress={screen === "setup" ? addPoint : undefined}>
-        {nextPolygon.coordinates[0].slice(0, -1).map((coordinate, index) => {
+        {nextPolygon.coordinates[0].slice(0, -1).map((coordinate: [number, number], index: number) => {
           const marker = projectCoordinate(coordinate, bounds, MAP_WIDTH, MAP_HEIGHT);
           return <View key={`polygon-${index}`} style={[styles.vertex, { left: marker.left - 6, top: marker.top - 6 }]} />;
         })}
@@ -166,6 +260,7 @@ export default function App() {
             <Text style={[styles.meta, isValid ? styles.success : styles.error]}>
               {polygon ? `${acreage.toLocaleString()} acres` : "Tap the terrain canvas to add polygon points."}
             </Text>
+            {renderMapControls()}
             {renderMap()}
             <View style={styles.row}>
               <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={!polygon || !isValid} />
@@ -198,6 +293,7 @@ export default function App() {
             <Text style={styles.sectionTitle}>Results</Text>
             <Text style={styles.meta}>Saved analysis: {analysis.analysisJobId || "not persisted"}</Text>
             <Text style={styles.meta}>Mode: {analysisModeLabel(analysis.analysisMode)}</Text>
+            {renderMapControls()}
             {renderMap()}
             <Text style={styles.metric}>Approximate acreage: {Number(analysis.summary?.approximateAcreage || acreage).toLocaleString()} acres</Text>
             <Text style={styles.metric}>Features: {analysis.features.length}</Text>
@@ -350,6 +446,17 @@ const styles = StyleSheet.create({
   buttonPrimaryText: {
     color: "#1f180f",
   },
+  mapWeb: {
+    height: MAP_HEIGHT,
+    borderRadius: 18,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#314a35",
+    marginVertical: 14,
+    backgroundColor: "#0b0f0c",
+  },
+  webView: { flex: 1, backgroundColor: "#0b0f0c" },
+  mapControlPanel: { gap: 8, marginTop: 12, marginBottom: 4 },
   map: {
     width: MAP_WIDTH,
     height: MAP_HEIGHT,
