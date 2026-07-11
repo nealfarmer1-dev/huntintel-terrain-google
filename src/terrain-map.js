@@ -26,23 +26,22 @@ export function usgs3depTileUrl(layerName) {
 
 export const MAPBOX_STYLE_OPTIONS = [
   { value: "satellite", label: "Satellite", style: "mapbox://styles/mapbox/satellite-streets-v12" },
-  { value: "outdoors", label: "Outdoors", style: "mapbox://styles/mapbox/outdoors-v12" },
-  { value: "topo", label: "Topo", style: "mapbox://styles/mapbox/outdoors-v12" },
+  { value: "outdoors", label: "Outdoors / Topographic", style: "mapbox://styles/mapbox/outdoors-v12" },
   { value: "streets", label: "Streets", style: "mapbox://styles/mapbox/streets-v12" },
   {
-    value: "lidar",
-    label: "Lidar",
+    value: "3dep",
+    label: "USGS 3DEP",
     style: {
       version: 8,
       sources: {
-        "usgs-3dep-lidar": {
+        "usgs-3dep-elevation": {
           type: "raster",
           tiles: [usgs3depTileUrl("3DEPElevation")],
           tileSize: 256,
           attribution: "USGS 3DEP / The National Map",
         },
       },
-      layers: [{ id: "usgs-3dep-lidar", type: "raster", source: "usgs-3dep-lidar", paint: { "raster-opacity": 1 } }],
+      layers: [{ id: "usgs-3dep-elevation", type: "raster", source: "usgs-3dep-elevation", paint: { "raster-opacity": 1 } }],
     },
   },
 ];

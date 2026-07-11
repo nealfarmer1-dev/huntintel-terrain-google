@@ -38,7 +38,8 @@ test("analysis request preserves valid UUID propertyId", () => {
 
 test("map config exposes Mapbox and USGS 3DEP sources", () => {
   assert.equal(resolveMapboxAccessToken({ EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN: "terrain-token" }), "terrain-token");
-  assert.equal(MAPBOX_STYLE_OPTIONS.some((option) => option.value === "lidar"), true);
+  assert.equal(MAPBOX_STYLE_OPTIONS.some((option) => option.value === "topo"), false);
+  assert.equal(MAPBOX_STYLE_OPTIONS.some((option) => option.value === "3dep"), true);
   assert.deepEqual(USGS_TERRAIN_OVERLAY_OPTIONS.map((option) => option.value), ["", "hillshade", "slope", "aspect"]);
   assert.equal(usgs3depTileUrl("3DEPElevation:Aspect Map").includes("3DEPElevation%3AAspect%20Map"), true);
 });

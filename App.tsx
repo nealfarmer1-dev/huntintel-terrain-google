@@ -50,7 +50,7 @@ function safeJson(value: unknown) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable }: any) {
+function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable, userLocation, userLocationEnabled }: any) {
   const style = mapboxStyleFor(basemap);
   const center = polygon?.coordinates?.[0]?.[0] || [-87.0, 32.6];
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
@@ -66,6 +66,8 @@ const style=${safeJson(style)};
 const overlay=${safeJson(overlay || null)};
 const labelsVisible=${safeJson(labelsVisible)};
 const editable=${safeJson(editable)};
+const initialUserLocation=${safeJson(userLocation || null)};
+const initialUserLocationEnabled=${safeJson(Boolean(userLocationEnabled))};
 const map=new mapboxgl.Map({container:'map',style:style,center:centerSafe(),zoom:13,projection:'mercator'});
 map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}),'top-right');
 let terrainEnabled=false;
@@ -73,7 +75,7 @@ function post(type,payload){if(window.ReactNativeWebView)window.ReactNativeWebVi
 function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinates[0]&&polygon.coordinates[0][0]||${safeJson(center)}}catch(e){return ${safeJson(center)}}}
 function ensureDem(){if(map.getSource('mapbox-dem'))return true;try{map.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1',tileSize:512,maxzoom:14});return true}catch(e){return false}}
 function set3d(next){terrainEnabled=!!next;if(terrainEnabled&&ensureDem()){map.setTerrain({source:'mapbox-dem',exaggeration:1.45});map.easeTo({pitch:60,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.add('active');return}try{map.setTerrain(null)}catch(e){}map.easeTo({pitch:0,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.remove('active')}
-document.getElementById('toggle-3d').onclick=function(e){e.stopPropagation();set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){e.stopPropagation();map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){e.stopPropagation();map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){e.stopPropagation();map.easeTo({bearing:0,duration:450})};document.getElementById('locate-me').onclick=function(e){e.stopPropagation();if(!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(function(pos){var lng=pos.coords.longitude,lat=pos.coords.latitude;if(!map.getSource('user-location')){map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':7,'circle-color':'#5aa7ff','circle-stroke-color':'#fff','circle-stroke-width':3}})}map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]},properties:{}}]});map.easeTo({center:[lng,lat],zoom:15,duration:500})})};
+let locationWatchId=null;const locateButton=document.getElementById('locate-me');const hint=document.querySelector('.hint');function consume(e){e.preventDefault();e.stopPropagation()}function ensureUserLocationLayer(){if(map.getSource('user-location'))return;map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':7,'circle-color':'#5aa7ff','circle-stroke-color':'#fff','circle-stroke-width':3}})}function setUserLocationMarker(location,moveCamera){if(!location||!Number.isFinite(location.longitude)||!Number.isFinite(location.latitude))return;ensureUserLocationLayer();map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[location.longitude,location.latitude]},properties:{}}]});if(moveCamera)map.easeTo({center:[location.longitude,location.latitude],zoom:15,duration:500});if(locateButton)locateButton.classList.add('active')}function clearUserLocation(){if(locationWatchId!=null&&navigator.geolocation){navigator.geolocation.clearWatch(locationWatchId)}locationWatchId=null;if(map.getSource('user-location'))map.getSource('user-location').setData({type:'FeatureCollection',features:[]});if(locateButton)locateButton.classList.remove('active');postedLocationToHost=false;post('user-location-cleared',{})}let postedLocationToHost=Boolean(initialUserLocation);function updateUserLocation(pos){var location={longitude:pos.coords.longitude,latitude:pos.coords.latitude};setUserLocationMarker(location,true);if(!postedLocationToHost){postedLocationToHost=true;post('user-location',location)}}function showLocationDenied(){if(hint)hint.textContent='Location is unavailable or permission was denied.';clearUserLocation()}function startUserLocation(){if(locationWatchId!=null)return;if(!navigator.geolocation){showLocationDenied();return}locationWatchId=navigator.geolocation.watchPosition(updateUserLocation,showLocationDenied,{enableHighAccuracy:true,maximumAge:10000,timeout:10000})}document.getElementById('toggle-3d').onclick=function(e){consume(e);set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){consume(e);map.easeTo({bearing:0,duration:450})};locateButton.onclick=function(e){consume(e);if(locationWatchId!=null){clearUserLocation();return}startUserLocation()};
 function fc(items){return{type:'FeatureCollection',features:(items||[]).filter(function(i){return i&&i.geometry}).map(function(i){return{type:'Feature',geometry:i.geometry,properties:i}})}}
 function addLayers(){if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay',{type:'raster',tiles:['${USGS_3DEP_WMS_BASE}?service=WMS&version=1.1.1&request=GetMap&layers='+encodeURIComponent(overlay.layer)+'&styles=&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256'],tileSize:256,attribution:'USGS 3DEP / The National Map'});map.addLayer({id:'usgs-3dep-overlay',type:'raster',source:'usgs-3dep-overlay',paint:{'raster-opacity':overlay.value==='hillshade'?.62:.78}})}
 if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{}}]}});map.addLayer({id:'analysis-polygon-fill',type:'fill',source:'analysis-polygon',paint:{'fill-color':'#d0a65d','fill-opacity':.18}});map.addLayer({id:'analysis-polygon-line',type:'line',source:'analysis-polygon',paint:{'line-color':'#f0d293','line-width':3}})}
@@ -81,7 +83,7 @@ map.addSource('analysis-features',{type:'geojson',data:fc(features)});map.addLay
 if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
 try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);features.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});waypoints.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});if(any)map.fitBounds(b,{padding:45,maxZoom:15,duration:0})}catch(e){}
 }
-map.on('load',addLayers);map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
 })();</script></body></html>`;
 }
 
@@ -98,6 +100,8 @@ export default function App() {
   const [basemap, setBasemap] = useState("satellite");
   const [terrainOverlay, setTerrainOverlay] = useState("");
   const [labelsVisible, setLabelsVisible] = useState(true);
+  const [userLocation, setUserLocation] = useState<MapPoint | null>(null);
+  const [userLocationEnabled, setUserLocationEnabled] = useState(false);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -168,6 +172,14 @@ export default function App() {
       if (message.type === "map-click" && typeof message.payload?.longitude === "number" && typeof message.payload?.latitude === "number") {
         addLngLatPoint(message.payload);
       }
+      if (message.type === "user-location" && typeof message.payload?.longitude === "number" && typeof message.payload?.latitude === "number") {
+        setUserLocation(message.payload);
+        setUserLocationEnabled(true);
+      }
+      if (message.type === "user-location-cleared") {
+        setUserLocation(null);
+        setUserLocationEnabled(false);
+      }
     } catch {
       // Ignore non-HuntIntel WebView messages.
     }
@@ -205,7 +217,7 @@ export default function App() {
           <WebView
             originWhitelist={["*"]}
             geolocationEnabled
-            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable: screen === "setup" }) }}
+            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable: screen === "setup", userLocation, userLocationEnabled }) }}
             onMessage={handleMapMessage}
             style={styles.webView}
           />
