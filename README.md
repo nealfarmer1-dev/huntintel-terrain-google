@@ -2,6 +2,8 @@
 
 Expo/React Native Android emulator MVP for weekend terrain analysis testing.
 
+Build Section 1 adds the complete shared HuntIntel account flow. Session tokens are persisted with Expo SecureStore; the app contains no issuer signing keys, database credentials, or Postmark token.
+
 ## Local development
 
 ```bash

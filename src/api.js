@@ -1,9 +1,13 @@
+import { accessToken } from "./auth";
+
 const baseUrl = (process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
 async function request(path, options = {}) {
+  const token = await accessToken();
   const response = await fetch(`${baseUrl}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -16,6 +20,9 @@ async function request(path, options = {}) {
 
   return payload;
 }
+
+export function accountRequest(path, body, method = "POST") { return request(`/api/account${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) }); }
+export function fetchAccount() { return request("/api/account/session"); }
 
 export function createAnalysis(input) {
   return request("/api/terrain/analyses", {

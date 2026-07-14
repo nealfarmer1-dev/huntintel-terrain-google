@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { WebView } from "react-native-webview";
 import {
   Pressable,
@@ -10,7 +10,8 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysis, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
+import { createAnalysis, fetchAccount, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
+import { AccountScreen } from "./src/AccountScreen";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
@@ -102,10 +103,17 @@ export default function App() {
   const [labelsVisible, setLabelsVisible] = useState(true);
   const [userLocation, setUserLocation] = useState<MapPoint | null>(null);
   const [userLocationEnabled, setUserLocationEnabled] = useState(false);
+  const [account, setAccount] = useState<any>(undefined);
+  const [showAccount, setShowAccount] = useState(false);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
   const isValid = acreage >= MIN_ACRES && acreage <= MAX_ACRES;
+
+  useEffect(() => { fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
+
+  if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
+  if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
 
   const openSavedAnalysis = async () => {
     if (!savedAnalysisId.trim()) {
@@ -253,6 +261,7 @@ export default function App() {
         <Text style={styles.eyebrow}>HuntIntel Terrain</Text>
         <Text style={styles.title}>Android Emulator MVP</Text>
         <Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text>
+        <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
         {screen === "setup" && (
           <View style={styles.card}>
