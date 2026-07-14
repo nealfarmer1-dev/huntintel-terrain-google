@@ -10,8 +10,9 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysis, fetchAccount, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
+import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
 import { AccountScreen } from "./src/AccountScreen";
+import { LibraryScreen } from "./src/LibraryScreen";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
@@ -32,7 +33,7 @@ const ANALYSIS_MODE_OPTIONS = [
   { value: "military_terrain", label: "Terrain Assessment" },
 ] as const;
 
-type Screen = "setup" | "processing" | "results" | "report" | "waypoint";
+type Screen = "setup" | "processing" | "results" | "report" | "waypoint" | "library";
 type MapPoint = { longitude: number; latitude: number };
 
 function sortWaypoints(waypoints: TerrainWaypoint[]) {
@@ -105,6 +106,8 @@ export default function App() {
   const [userLocationEnabled, setUserLocationEnabled] = useState(false);
   const [account, setAccount] = useState<any>(undefined);
   const [showAccount, setShowAccount] = useState(false);
+  const [library, setLibrary] = useState<any>(null);
+  const [libraryLoading, setLibraryLoading] = useState(false);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -114,6 +117,18 @@ export default function App() {
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
   if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
+
+  const loadLibrary = async (page = 1) => {
+    setScreen("library"); setLibraryLoading(true); setError("");
+    try { setLibrary(await fetchAnalyses(page, 12)); }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
+    finally { setLibraryLoading(false); }
+  };
+
+  const openLibraryAnalysis = async (analysisJobId: string) => {
+    try { setError(""); setScreen("processing"); setSavedAnalysisId(analysisJobId); setAnalysis(await fetchAnalysis(analysisJobId)); setScreen("results"); }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); }
+  };
 
   const openSavedAnalysis = async () => {
     if (!savedAnalysisId.trim()) {
@@ -261,7 +276,10 @@ export default function App() {
         <Text style={styles.eyebrow}>HuntIntel Terrain</Text>
         <Text style={styles.title}>Android Emulator MVP</Text>
         <Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text>
+        <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
         <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
+
+        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} />}
 
         {screen === "setup" && (
           <View style={styles.card}>

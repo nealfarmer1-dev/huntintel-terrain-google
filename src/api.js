@@ -31,8 +31,22 @@ export function createAnalysis(input) {
   });
 }
 
-export function fetchAnalysis(analysisJobId) {
-  return request(`/api/terrain/analyses/${encodeURIComponent(analysisJobId)}`);
+export function fetchAnalyses(page = 1, pageSize = 20) {
+  return request(`/api/terrain/analyses?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`);
+}
+
+export async function fetchAnalysis(analysisJobId) {
+  const encodedId = encodeURIComponent(analysisJobId);
+  const base = await request(`/api/terrain/analyses/${encodedId}`);
+  const resolvedId = base.analysisJobId || analysisJobId;
+  const encodedResolvedId = encodeURIComponent(resolvedId);
+  const [features, relationships, waypoints, report] = await Promise.all([
+    request(`/api/terrain/analyses/${encodedResolvedId}/features`),
+    request(`/api/terrain/analyses/${encodedResolvedId}/relationships`),
+    request(`/api/terrain/analyses/${encodedResolvedId}/waypoints`),
+    request(`/api/terrain/analyses/${encodedResolvedId}/report`),
+  ]);
+  return { ...base, analysisJobId: resolvedId, features: features.features || [], relationships: relationships.relationships || [], waypoints: waypoints.waypoints || [], report: report.report || base.report || {} };
 }
 
 export { baseUrl as terrainApiBaseUrl };

@@ -98,3 +98,26 @@ export interface TerrainAnalysisResponse {
   report: TerrainReport;
   persistenceWarning?: string;
 }
+
+export interface TerrainAnalysisLibraryItem {
+  analysisJobId: string;
+  name: string;
+  analysisMode: TerrainAnalysisRequest["analysisMode"];
+  acreage: number | null;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  mapPreview: TerrainAnalysisRequest["polygon"] | null;
+  topFinding: string | null;
+  waypointCount: number;
+  accessRole: "owner" | "coordinator" | "contributor" | "viewer";
+  offlineAvailable: false;
+}
+
+export interface TerrainAnalysisLibraryPage {
+  items: TerrainAnalysisLibraryItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
