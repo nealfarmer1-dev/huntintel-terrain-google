@@ -13,6 +13,7 @@ import {
 import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
+import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
@@ -356,6 +357,7 @@ export default function App() {
                 <Text style={styles.meta}>Score {waypoint.score.toFixed(1)}</Text>
               </Pressable>
             ))}
+            {!!(analysis.analysisJobId || savedAnalysisId) && <FieldRecordsScreen analysisJobId={analysis.analysisJobId || savedAnalysisId} waypoints={waypointCards.map(({ id, title }) => ({ id, title }))} />}
           </View>
         )}
 
