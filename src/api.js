@@ -76,5 +76,8 @@ export const deleteBreadcrumbRecord = (id, breadcrumbId) => request(`/api/terrai
 export const fetchMapConfig = () => request("/api/terrain/map-config");
 export const fetchParcelOverlay = () => request("/api/terrain/maps/parcel-overlay");
 export const fetchParcelDetail = (latitude,longitude,robustId) => request(`/api/terrain/maps/parcel-detail?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}${robustId?`&robustId=${encodeURIComponent(robustId)}`:""}`);
+export const generatePdfReport = (id, options = {}) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/pdf`, { method: "POST", body: JSON.stringify(options) });
+export const fetchLatestPdfReport = (id) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/pdf`);
+export const fetchPdfReportDownload = (id, exportId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/pdf/${encodeURIComponent(exportId)}/download`);
 
 export { baseUrl as terrainApiBaseUrl };

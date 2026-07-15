@@ -1,0 +1,2 @@
+export function safeLocalPdfFilename(value) { const filename=String(value||"HuntIntel-Terrain-Report.pdf").replace(/[^a-zA-Z0-9._-]+/g,"-").replace(/^-+/,"").slice(0,120)||"HuntIntel-Terrain-Report.pdf"; return filename.toLowerCase().endsWith(".pdf")?filename:`${filename}.pdf`; }
+export function togglePdfOption(options,key) { if(!["includeFieldNotes","includeAttachments","includeBreadcrumbs"].includes(key))throw new Error("Unknown PDF option."); return {...options,[key]:!options[key]}; }

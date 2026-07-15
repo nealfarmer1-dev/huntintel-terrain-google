@@ -121,3 +121,6 @@ export interface TerrainAnalysisLibraryPage {
   total: number;
   totalPages: number;
 }
+
+export interface TerrainPdfExportOptions { includeFieldNotes?: boolean; includeAttachments?: boolean; includeBreadcrumbs?: boolean; }
+export interface TerrainPdfExportArtifact { exportId:string; analysisJobId:string; status:"generating"|"ready"|"failed"|"delete_pending"; filename:string; schemaVersion:number; templateVersion:string; brandingVersion:string; sizeBytes:number|null; checksum:string|null; generatedAt:string|null; errorCode:string|null; accessRole:"owner"|"coordinator"|"contributor"|"viewer"; }
