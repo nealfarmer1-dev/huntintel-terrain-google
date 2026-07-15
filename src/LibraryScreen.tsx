@@ -15,7 +15,7 @@ type LibraryItem = {
 };
 
 type Library = { items: LibraryItem[]; page: number; pageSize: number; total: number; totalPages: number };
-type Props = { library: Library | null; loading: boolean; error: string; onPage: (page: number) => void; onOpen: (id: string) => void; onNew: () => void };
+type Props = { library: Library | null; loading: boolean; error: string; offlinePackages?: any[]; offlineStatus?: string; onPage: (page: number) => void; onOpen: (id: string) => void; onNew: () => void; onDownload?: (id: string) => void; onSync?: (id: string) => void; onRemove?: (id: string) => void };
 
 function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   const ring = polygon?.coordinates?.[0] || [];
@@ -29,18 +29,19 @@ function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   })}</View>;
 }
 
-export function LibraryScreen({ library, loading, error, onPage, onOpen, onNew }: Props) {
+export function LibraryScreen({ library, loading, error, offlinePackages = [], offlineStatus, onPage, onOpen, onNew, onDownload, onSync, onRemove }: Props) {
   return <View style={styles.card}>
     <View style={styles.heading}><View><Text style={styles.eyebrow}>Saved terrain intelligence</Text><Text style={styles.title}>My Analyses</Text></View><Button label="New Analysis" onPress={onNew} /></View>
     <Text style={styles.meta}>Engine findings, geometries, reports, and waypoints are read-only.</Text>
     {!!error && <Text style={styles.error}>{error}</Text>}
+    {!!offlineStatus && <Text style={styles.meta}>{offlineStatus}</Text>}
     {loading ? <Text style={styles.meta}>Loading analyses…</Text> : !library?.items.length ? <Text style={styles.meta}>No saved analyses yet.</Text> : library.items.map((item) => <View key={item.analysisJobId} style={styles.analysisCard}>
       <BoundaryPreview polygon={item.mapPreview} />
       <View style={styles.body}><View style={styles.heading}><Text style={styles.itemTitle}>{item.name}</Text><Text style={styles.badge}>{item.accessRole}</Text></View>
       <Text style={styles.meta}>{item.analysisMode.split("_").join(" ")} · {item.acreage == null ? "Acreage unavailable" : `${item.acreage.toLocaleString()} acres`}</Text>
       <Text style={styles.meta}>{item.status} · {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "Date unavailable"}</Text>
       <Text style={styles.finding}>{item.topFinding || "Deterministic terrain analysis ready for review."}</Text><Text style={styles.meta}>{item.waypointCount} waypoints</Text>
-      <Button label="Open Analysis" primary onPress={() => onOpen(item.analysisJobId)} /></View>
+      <Button label="Open Analysis" primary onPress={() => onOpen(item.analysisJobId)} />{(() => { const saved: any = offlinePackages.find((value: any) => value.analysisJobId === item.analysisJobId); return <><Text style={styles.meta}>{saved ? `Offline v${saved.packageVersion} · ${saved.pending?.length || 0} pending` : "Online only"}</Text><Button label={saved ? "Update Offline Package" : "Download for Offline"} onPress={() => onDownload?.(item.analysisJobId)} />{saved && <><Button label="Sync Pending Changes" onPress={() => onSync?.(item.analysisJobId)} /><Button label="Remove Download" onPress={() => onRemove?.(item.analysisJobId)} /></>}</>; })()}</View>
     </View>)}
     {!!library && library.totalPages > 1 && <View style={styles.pager}><Button label="Previous" disabled={library.page <= 1} onPress={() => onPage(library.page - 1)} /><Text style={styles.meta}>Page {library.page} of {library.totalPages}</Text><Button label="Next" disabled={library.page >= library.totalPages} onPress={() => onPage(library.page + 1)} /></View>}
   </View>;

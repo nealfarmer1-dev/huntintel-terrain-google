@@ -10,7 +10,8 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, terrainApiBaseUrl } from "./src/api";
+import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { listOfflinePackages, loadOfflinePackage, removeOfflinePackage, saveOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
@@ -109,6 +110,8 @@ export default function App() {
   const [showAccount, setShowAccount] = useState(false);
   const [library, setLibrary] = useState<any>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [offlinePackages, setOfflinePackages] = useState<any[]>([]);
+  const [offlineStatus, setOfflineStatus] = useState("");
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -121,15 +124,19 @@ export default function App() {
 
   const loadLibrary = async (page = 1) => {
     setScreen("library"); setLibraryLoading(true); setError("");
-    try { setLibrary(await fetchAnalyses(page, 12)); }
+    try { setLibrary(await fetchAnalyses(page, 12)); setOfflinePackages(await listOfflinePackages()); }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
   };
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
     try { setError(""); setScreen("processing"); setSavedAnalysisId(analysisJobId); setAnalysis(await fetchAnalysis(analysisJobId)); setScreen("results"); }
-    catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); }
+    catch (nextError) { const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached) { const immutable = cached.manifest.immutable; setAnalysis({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report }); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
+
+  const downloadOffline = async (id: string) => { try { setOfflineStatus("Estimating package…"); const manifest = await fetchOfflineManifest(id); await saveOfflinePackage(manifest, (progress: number) => setOfflineStatus(`Downloading… ${progress}%`)); setOfflineStatus("Offline package ready."); setOfflinePackages(await listOfflinePackages()); } catch (nextError) { setOfflineStatus(nextError instanceof Error ? nextError.message : "Offline download failed."); } };
+  const syncOffline = async (id: string) => { try { await synchronizeOfflinePackage(id, (operations: any[]) => pushOfflineSync(id, operations), (cursor: number) => pullOfflineSync(id, cursor)); setOfflineStatus("Offline changes synchronized."); setOfflinePackages(await listOfflinePackages()); } catch (nextError) { setOfflineStatus(`Pending sync: ${nextError instanceof Error ? nextError.message : "network unavailable"}`); } };
+  const removeOffline = async (id: string) => { await removeOfflinePackage(id); setOfflineStatus("Offline package removed."); setOfflinePackages(await listOfflinePackages()); };
 
   const openSavedAnalysis = async () => {
     if (!savedAnalysisId.trim()) {
@@ -280,7 +287,7 @@ export default function App() {
         <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
         <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
-        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} />}
+        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} onDownload={downloadOffline} onSync={syncOffline} onRemove={removeOffline} />}
 
         {screen === "setup" && (
           <View style={styles.card}>

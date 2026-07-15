@@ -1,4 +1,5 @@
 import { accessToken } from "./auth";
+import { queueOfflineOperation } from "./offline";
 
 const baseUrl = (process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
@@ -50,16 +51,19 @@ export async function fetchAnalysis(analysisJobId) {
 }
 
 export const fetchAnalysisNotes = (id) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/notes?page=1&pageSize=100`);
-export const createAnalysisNote = (id, body) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ body }) });
+export const createAnalysisNote = async (id, body) => { try { return await request(`/api/terrain/analyses/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ body }) }); } catch (error) { if (!(error instanceof TypeError)) throw error; return { queued: true, pendingCount: await queueOfflineOperation(id, "note.create", { body }) }; } };
 export const updateAnalysisNote = (id, noteId, body) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, { method: "PATCH", body: JSON.stringify({ body }) });
 export const deleteAnalysisNote = (id, noteId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
 export const fetchWaypointFieldData = (id, waypointId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/waypoints/${encodeURIComponent(waypointId)}/field-data`);
-export const saveWaypointFieldData = (id, waypointId, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/waypoints/${encodeURIComponent(waypointId)}/field-data`, { method: "PUT", body: JSON.stringify(value) });
+export const saveWaypointFieldData = async (id, waypointId, value) => { try { return await request(`/api/terrain/analyses/${encodeURIComponent(id)}/waypoints/${encodeURIComponent(waypointId)}/field-data`, { method: "PUT", body: JSON.stringify(value) }); } catch (error) { if (!(error instanceof TypeError)) throw error; return { queued: true, pendingCount: await queueOfflineOperation(id, "waypoint.put", { waypointId, value }) }; } };
 export const fetchAttachments = (id) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments?page=1&pageSize=100`);
 export const createAttachmentUpload = (id, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments/uploads`, { method: "POST", body: JSON.stringify(value) });
 export const finalizeAttachment = (id, attachmentId, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/finalize`, { method: "POST", body: JSON.stringify(value) });
 export const deleteAttachment = (id, attachmentId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
 export const fetchAttachmentDownload = (id, attachmentId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/download`);
 export const fetchStorageQuota = () => request("/api/storage/quota");
+export const fetchOfflineManifest = (id, attachmentIds = []) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/manifest?attachments=${encodeURIComponent(attachmentIds.join(","))}`);
+export const pushOfflineSync = (id, operations) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/sync`, { method: "POST", body: JSON.stringify({ operations }) });
+export const pullOfflineSync = (id, cursor = 0) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/sync?cursor=${encodeURIComponent(cursor)}`);
 
 export { baseUrl as terrainApiBaseUrl };
