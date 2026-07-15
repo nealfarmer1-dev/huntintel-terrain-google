@@ -62,7 +62,7 @@ export const finalizeAttachment = (id, attachmentId, value) => request(`/api/ter
 export const deleteAttachment = (id, attachmentId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
 export const fetchAttachmentDownload = (id, attachmentId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/download`);
 export const fetchStorageQuota = () => request("/api/storage/quota");
-export const fetchOfflineManifest = (id, attachmentIds = []) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/manifest?attachments=${encodeURIComponent(attachmentIds.join(","))}`);
+export const fetchOfflineManifest = (id, attachmentIds = [], options = {}) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/manifest?attachments=${encodeURIComponent(attachmentIds.join(","))}&provider=${encodeURIComponent(options.provider || "")}&minZoom=${encodeURIComponent(options.minZoom || "")}&maxZoom=${encodeURIComponent(options.maxZoom || "")}`);
 export const pushOfflineSync = (id, operations) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/sync`, { method: "POST", body: JSON.stringify({ operations }) });
 export const pullOfflineSync = (id, cursor = 0) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/sync?cursor=${encodeURIComponent(cursor)}`);
 

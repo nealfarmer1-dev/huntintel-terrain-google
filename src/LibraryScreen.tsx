@@ -15,7 +15,7 @@ type LibraryItem = {
 };
 
 type Library = { items: LibraryItem[]; page: number; pageSize: number; total: number; totalPages: number };
-type Props = { library: Library | null; loading: boolean; error: string; offlinePackages?: any[]; offlineStatus?: string; onPage: (page: number) => void; onOpen: (id: string) => void; onNew: () => void; onDownload?: (id: string) => void; onSync?: (id: string) => void; onRemove?: (id: string) => void };
+type Props = { library: Library | null; loading: boolean; error: string; offlinePackages?: any[]; offlineStatus?: string; downloadingId?: string; onPage: (page: number) => void; onOpen: (id: string) => void; onNew: () => void; onDownload?: (id: string) => void; onCancel?: () => void; onSync?: (id: string) => void; onRemove?: (id: string) => void };
 
 function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   const ring = polygon?.coordinates?.[0] || [];
@@ -29,7 +29,7 @@ function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   })}</View>;
 }
 
-export function LibraryScreen({ library, loading, error, offlinePackages = [], offlineStatus, onPage, onOpen, onNew, onDownload, onSync, onRemove }: Props) {
+export function LibraryScreen({ library, loading, error, offlinePackages = [], offlineStatus, downloadingId, onPage, onOpen, onNew, onDownload, onCancel, onSync, onRemove }: Props) {
   return <View style={styles.card}>
     <View style={styles.heading}><View><Text style={styles.eyebrow}>Saved terrain intelligence</Text><Text style={styles.title}>My Analyses</Text></View><Button label="New Analysis" onPress={onNew} /></View>
     <Text style={styles.meta}>Engine findings, geometries, reports, and waypoints are read-only.</Text>
@@ -41,7 +41,7 @@ export function LibraryScreen({ library, loading, error, offlinePackages = [], o
       <Text style={styles.meta}>{item.analysisMode.split("_").join(" ")} · {item.acreage == null ? "Acreage unavailable" : `${item.acreage.toLocaleString()} acres`}</Text>
       <Text style={styles.meta}>{item.status} · {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "Date unavailable"}</Text>
       <Text style={styles.finding}>{item.topFinding || "Deterministic terrain analysis ready for review."}</Text><Text style={styles.meta}>{item.waypointCount} waypoints</Text>
-      <Button label="Open Analysis" primary onPress={() => onOpen(item.analysisJobId)} />{(() => { const saved: any = offlinePackages.find((value: any) => value.analysisJobId === item.analysisJobId); return <><Text style={styles.meta}>{saved ? `Offline v${saved.packageVersion} · ${saved.pending?.length || 0} pending` : "Online only"}</Text><Button label={saved ? "Update Offline Package" : "Download for Offline"} onPress={() => onDownload?.(item.analysisJobId)} />{saved && <><Button label="Sync Pending Changes" onPress={() => onSync?.(item.analysisJobId)} /><Button label="Remove Download" onPress={() => onRemove?.(item.analysisJobId)} /></>}</>; })()}</View>
+      <Button label="Open Analysis" primary onPress={() => onOpen(item.analysisJobId)} />{(() => { const saved: any = offlinePackages.find((value: any) => value.analysisJobId === item.analysisJobId); const downloading = downloadingId === item.analysisJobId; return <><Text style={styles.meta}>{saved ? `Offline v${saved.packageVersion} · ${saved.pending?.length || 0} pending · ${saved.progress}%` : "Online only"}</Text><Button label={downloading ? "Cancel Download" : saved ? "Resume / Update" : "Download for Offline"} onPress={() => downloading ? onCancel?.() : onDownload?.(item.analysisJobId)} />{saved && <><Button label="Sync Pending Changes" onPress={() => onSync?.(item.analysisJobId)} /><Button label="Remove Download" onPress={() => onRemove?.(item.analysisJobId)} /></>}</>; })()}</View>
     </View>)}
     {!!library && library.totalPages > 1 && <View style={styles.pager}><Button label="Previous" disabled={library.page <= 1} onPress={() => onPage(library.page - 1)} /><Text style={styles.meta}>Page {library.page} of {library.totalPages}</Text><Button label="Next" disabled={library.page >= library.totalPages} onPress={() => onPage(library.page + 1)} /></View>}
   </View>;

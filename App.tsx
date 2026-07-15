@@ -10,8 +10,9 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
-import { listOfflinePackages, loadOfflinePackage, removeOfflinePackage, saveOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
+import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
+import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
@@ -112,6 +113,8 @@ export default function App() {
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [offlinePackages, setOfflinePackages] = useState<any[]>([]);
   const [offlineStatus, setOfflineStatus] = useState("");
+  const [offlineManifest, setOfflineManifest] = useState<any>(null);
+  const [offlineDownload, setOfflineDownload] = useState<{ id: string; controller: AbortController } | null>(null);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -131,10 +134,10 @@ export default function App() {
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
     try { setError(""); setScreen("processing"); setSavedAnalysisId(analysisJobId); setAnalysis(await fetchAnalysis(analysisJobId)); setScreen("results"); }
-    catch (nextError) { const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached) { const immutable = cached.manifest.immutable; setAnalysis({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report }); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
+    catch (nextError) { const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached) { const immutable = cached.manifest.immutable; setAnalysis({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report }); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
 
-  const downloadOffline = async (id: string) => { try { setOfflineStatus("Estimating package…"); const manifest = await fetchOfflineManifest(id); await saveOfflinePackage(manifest, (progress: number) => setOfflineStatus(`Downloading… ${progress}%`)); setOfflineStatus("Offline package ready."); setOfflinePackages(await listOfflinePackages()); } catch (nextError) { setOfflineStatus(nextError instanceof Error ? nextError.message : "Offline download failed."); } };
+  const downloadOffline = async (id: string) => { const controller = new AbortController(); setOfflineDownload({ id, controller }); try { setOfflineStatus("Estimating package…"); const attachmentIds = (await fetchAttachments(id)).items?.map((item: any) => item.id) || []; let manifest = await fetchOfflineManifest(id, attachmentIds); const provider = manifest.map.providers[0]; if (provider) manifest = await fetchOfflineManifest(id, attachmentIds, { provider: provider.id, minZoom: provider.minZoom, maxZoom: Math.min(provider.minZoom + 1, provider.maxZoom) }); await downloadAndSaveOfflinePackage(manifest, { apiBaseUrl: terrainApiBaseUrl, signal: controller.signal, onProgress: (progress: any) => setOfflineStatus(`${progress.completedAssets}/${progress.totalAssets} assets · ${Math.floor((progress.completedBytes / Math.max(1, progress.totalBytes)) * 100)}%`) }); setOfflineStatus("Offline package ready."); } catch (nextError) { setOfflineStatus(nextError instanceof Error && nextError.name === "AbortError" ? "Download canceled; tap Resume / Update to continue." : `Download failed; tap Resume / Update to retry. ${nextError instanceof Error ? nextError.message : ""}`); } finally { setOfflineDownload(null); setOfflinePackages(await listOfflinePackages()); } };
   const syncOffline = async (id: string) => { try { await synchronizeOfflinePackage(id, (operations: any[]) => pushOfflineSync(id, operations), (cursor: number) => pullOfflineSync(id, cursor)); setOfflineStatus("Offline changes synchronized."); setOfflinePackages(await listOfflinePackages()); } catch (nextError) { setOfflineStatus(`Pending sync: ${nextError instanceof Error ? nextError.message : "network unavailable"}`); } };
   const removeOffline = async (id: string) => { await removeOfflinePackage(id); setOfflineStatus("Offline package removed."); setOfflinePackages(await listOfflinePackages()); };
 
@@ -233,6 +236,7 @@ export default function App() {
   );
 
   const renderMap = () => {
+    if (offlineManifest?.map?.tilePlan) return <View style={styles.mapWeb}><WebView originWhitelist={["*"]} source={{ html: renderOfflineMapHtml(offlineManifest) }} /></View>;
     const nextPolygon = analysis?.summary ? polygon || buildPolygonFromPoints(samplePoints()) : polygon;
     if (!nextPolygon) {
       return null;
@@ -287,7 +291,7 @@ export default function App() {
         <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
         <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
-        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} onDownload={downloadOffline} onSync={syncOffline} onRemove={removeOffline} />}
+        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
 
         {screen === "setup" && (
           <View style={styles.card}>
