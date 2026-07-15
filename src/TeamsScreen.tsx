@@ -1,0 +1,20 @@
+import React, { useEffect, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { createTeam, fetchTeamInvitations, fetchTeamMembers, fetchTeams, inviteTeamMember, removeTeamMember, respondTeamInvitation, revokeTeamAnalysis, shareAnalysisWithTeam, updateTeamMemberRole } from "./api";
+
+const roles = ["viewer", "contributor", "coordinator"];
+export function TeamsScreen({ onClose }: { onClose: () => void }) {
+  const [teams,setTeams]=useState<any[]>([]), [invites,setInvites]=useState<any[]>([]), [members,setMembers]=useState<any[]>([]);
+  const [selected,setSelected]=useState<any>(null), [name,setName]=useState(""), [email,setEmail]=useState(""), [analysisId,setAnalysisId]=useState(""), [message,setMessage]=useState("");
+  const load=async(id?:string)=>{try{const[t,i]=await Promise.all([fetchTeams(),fetchTeamInvitations()]);setTeams(t.items||[]);setInvites(i.items||[]);const next=id||selected?.id||t.items?.[0]?.id;if(next){setSelected(t.items.find((x:any)=>x.id===next));setMembers((await fetchTeamMembers(next)).items||[])}}catch(e){setMessage(e instanceof Error?e.message:"Unable to load teams.")}};
+  useEffect(()=>{load()},[]);
+  return <View style={s.card}><Text style={s.title}>Teams</Text><Text style={s.meta}>Authenticated collaboration only. Live SAR location sharing belongs to Build Section 8.</Text><Pressable style={s.button} onPress={onClose}><Text>Close</Text></Pressable>
+    <TextInput style={s.input} value={name} onChangeText={setName} placeholder="Team name"/><Pressable style={s.primary} onPress={async()=>{await createTeam({name});setName("");load()}}><Text>Create team</Text></Pressable>
+    {invites.map(i=><View key={i.id} style={s.row}><Text>{i.teamName||i.team_name} · {i.role}</Text><Pressable onPress={async()=>{await respondTeamInvitation(i.id,"accept");load()}}><Text>Accept</Text></Pressable><Pressable onPress={async()=>{await respondTeamInvitation(i.id,"decline");load()}}><Text>Decline</Text></Pressable></View>)}
+    {teams.map(t=><Pressable key={t.id} style={s.button} onPress={()=>load(t.id)}><Text>{t.name} · {t.accessRole||t.access_role}</Text></Pressable>)}
+    {selected&&<><Text style={s.title}>{selected.name}</Text><TextInput style={s.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Verified HuntIntel email"/><Pressable style={s.primary} onPress={async()=>{const r=await inviteTeamMember(selected.id,{email,role:"viewer"});setMessage(r.emailSent?"Invitation sent.":"Invitation created; email delivery is not configured.");setEmail("")}}><Text>Invite viewer</Text></Pressable>
+      <TextInput style={s.input} value={analysisId} onChangeText={setAnalysisId} placeholder="Owned analysis ID"/><Pressable style={s.primary} onPress={async()=>{await shareAnalysisWithTeam(selected.id,analysisId.trim());setMessage("Analysis shared.")}}><Text>Share analysis</Text></Pressable><Pressable style={s.button} onPress={async()=>{await revokeTeamAnalysis(selected.id,analysisId.trim());setMessage("Analysis access revoked.")}}><Text>Revoke analysis</Text></Pressable>
+      {members.map(m=><View key={m.userId||m.user_id} style={s.row}><Text>{m.display_name||m.email||m.userId||m.user_id} · {m.role}</Text>{m.role!=="owner"&&<><Pressable onPress={async()=>{await updateTeamMemberRole(selected.id,m.userId||m.user_id,roles[(roles.indexOf(m.role)+1)%roles.length]);load(selected.id)}}><Text>Change role</Text></Pressable><Pressable onPress={async()=>{await removeTeamMember(selected.id,m.userId||m.user_id);load(selected.id)}}><Text>Remove</Text></Pressable></>}</View>)}</>}
+    {!!message&&<Text style={s.meta}>{message}</Text>}</View>;
+}
+const s=StyleSheet.create({card:{backgroundColor:"#172016",padding:16,borderRadius:16,gap:10},title:{color:"#eef3e8",fontSize:22,fontWeight:"800"},meta:{color:"#b5c0ae"},input:{backgroundColor:"#edf1e9",padding:12,borderRadius:8},row:{backgroundColor:"#263126",padding:10,borderRadius:8,gap:8},button:{backgroundColor:"#ccd6c4",padding:10,borderRadius:8},primary:{backgroundColor:"#99b583",padding:12,borderRadius:8}});

@@ -20,6 +20,7 @@ import { DEFAULT_LAYER_PREFERENCES, normalizeLayerPreferences, toggleLayer } fro
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
+import { TeamsScreen } from "./src/TeamsScreen";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
@@ -40,7 +41,7 @@ const ANALYSIS_MODE_OPTIONS = [
   { value: "military_terrain", label: "Terrain Assessment" },
 ] as const;
 
-type Screen = "setup" | "processing" | "results" | "report" | "waypoint" | "library";
+type Screen = "setup" | "processing" | "results" | "report" | "waypoint" | "library" | "teams";
 type MapPoint = { longitude: number; latitude: number };
 
 function sortWaypoints(waypoints: TerrainWaypoint[]) {
@@ -303,9 +304,11 @@ export default function App() {
         <Text style={styles.title}>Android Emulator MVP</Text>
         <Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text>
         <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
+        <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
         <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
         {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
+        {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
 
         {screen === "setup" && (
           <View style={styles.card}>
