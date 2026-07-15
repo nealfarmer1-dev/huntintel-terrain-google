@@ -124,3 +124,7 @@ export interface TerrainAnalysisLibraryPage {
 
 export interface TerrainPdfExportOptions { includeFieldNotes?: boolean; includeAttachments?: boolean; includeBreadcrumbs?: boolean; }
 export interface TerrainPdfExportArtifact { exportId:string; analysisJobId:string; status:"generating"|"ready"|"failed"|"delete_pending"; filename:string; schemaVersion:number; templateVersion:string; brandingVersion:string; sizeBytes:number|null; checksum:string|null; generatedAt:string|null; errorCode:string|null; accessRole:"owner"|"coordinator"|"contributor"|"viewer"; }
+export type TerrainAnalysisPackageKey="standard_analysis"|"large_analysis";
+export type TerrainPaymentProvider="development_bypass"|"stripe"|"apple_iap"|"google_play";
+export interface TerrainAnalysisDraft {draftId:string;analysisMode:TerrainAnalysisRequest["analysisMode"];acreage:number;tierKey:TerrainAnalysisPackageKey;amountMinor:999|1499;currency:"USD";status:string;analysisJobId:string|null;failureCode:string|null;}
+export interface TerrainPaymentQuote {quoteId:string;draftId:string;acreage:number;tierKey:TerrainAnalysisPackageKey;label:string;amountMinor:999|1499;currency:"USD";displayPrice:string;expiresAt:string;provider:TerrainPaymentProvider;providerProductId:string|null;}

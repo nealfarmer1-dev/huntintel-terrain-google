@@ -16,7 +16,7 @@ export async function request(path, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message || "Terrain API request failed.");
+    const error=new Error(payload?.error?.message||"Terrain API request failed.");error.code=payload?.error?.code;error.details=payload?.error?.details;throw error;
   }
 
   return payload;
@@ -35,6 +35,11 @@ export function createAnalysis(input) {
     body: JSON.stringify(input),
   });
 }
+export const createAnalysisDraft=input=>request("/api/terrain/analysis-drafts",{method:"POST",body:JSON.stringify(input)});
+export const createPaymentAttempt=(id,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts`,{method:"POST",body:JSON.stringify(input)});
+export const verifyPaymentAttempt=(id,attemptId,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts/${encodeURIComponent(attemptId)}/verify`,{method:"POST",body:JSON.stringify(input)});
+export const reconcileAnalysisPurchase=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/reconcile`,{method:"POST",body:"{}"});
+export const submitPaidAnalysis=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/analyze`,{method:"POST",body:"{}"});
 
 export function fetchAnalyses(page = 1, pageSize = 20) {
   return request(`/api/terrain/analyses?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`);

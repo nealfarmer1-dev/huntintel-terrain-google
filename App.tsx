@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as SecureStore from "expo-secure-store";
+import * as Crypto from "expo-crypto";
 import { WebView } from "react-native-webview";
 import {
   Pressable,
@@ -11,7 +12,7 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchMapConfig, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { createAnalysisDraft, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchMapConfig, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import "./src/navigation-background";
@@ -24,12 +25,13 @@ import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
 import { TeamsScreen } from "./src/TeamsScreen";
 import { SarScreen } from "./src/SarScreen";
 import { PdfReportPanel } from "./src/PdfReportPanel";
+import { PaymentGate } from "./src/PaymentGate";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
 
 const MIN_ACRES = 5;
-const MAX_ACRES = 5000;
+const MAX_ACRES = 2000;
 const MAP_WIDTH = 320;
 const MAP_HEIGHT = 260;
 const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken((globalThis as any).process?.env || {});
@@ -44,7 +46,7 @@ const ANALYSIS_MODE_OPTIONS = [
   { value: "military_terrain", label: "Terrain Assessment" },
 ] as const;
 
-type Screen = "setup" | "processing" | "results" | "report" | "waypoint" | "library" | "teams" | "sar";
+type Screen = "setup" | "payment" | "processing" | "results" | "report" | "waypoint" | "library" | "teams" | "sar";
 type MapPoint = { longitude: number; latitude: number };
 
 function sortWaypoints(waypoints: TerrainWaypoint[]) {
@@ -127,6 +129,7 @@ export default function App() {
   const [offlineDownload, setOfflineDownload] = useState<{ id: string; controller: AbortController } | null>(null);
   const [layerPreferences, setLayerPreferences] = useState<any>(DEFAULT_LAYER_PREFERENCES);
   const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
+  const [purchase,setPurchase]=useState<any>(null);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -135,6 +138,7 @@ export default function App() {
   useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
+  const invalidatePurchase=()=>setPurchase(null);
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
   if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
@@ -173,7 +177,7 @@ export default function App() {
     }
   };
 
-  const submit = async () => {
+  const requestQuote = async () => {
     if (!polygon) {
       setError("Draw three or more points or use the sample polygon.");
       return;
@@ -186,32 +190,32 @@ export default function App() {
 
     try {
       setError("");
-      setScreen("processing");
-      const nextAnalysis = await createAnalysis(buildAnalysisRequestPayload({
+      const nextPurchase = await createAnalysisDraft({...buildAnalysisRequestPayload({
         analysisName,
         analysisMode,
         species: isWildlifeMode(analysisMode) ? analysisMode : null,
         saveResults: true,
         propertyId: null,
         polygon,
-      }));
-      setAnalysis(nextAnalysis);
-      setSavedAnalysisId(nextAnalysis.analysisJobId || "");
-      setScreen("results");
+      }),idempotencyKey:Crypto.randomUUID()});
+      setPurchase(nextPurchase);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Terrain analysis failed.");
+      setError(nextError instanceof Error ? nextError.message : "Unable to confirm server acreage and price.");
       setScreen("setup");
     }
   };
 
+  const submit=()=>{if(!purchase){setError("Confirm the server acreage and one-time price before analyzing.");return;}setError("");setScreen("payment");};
+  const completePaidAnalysis=async(nextAnalysis:any)=>{setAnalysis(nextAnalysis);setSavedAnalysisId(nextAnalysis.analysisJobId||"");setScreen("results");};
+
   const addPoint = (event: { nativeEvent: { locationX: number; locationY: number } }) => {
     const longitude = -87.02 + (event.nativeEvent.locationX / MAP_WIDTH) * 0.36;
     const latitude = 32.45 + ((MAP_HEIGHT - event.nativeEvent.locationY) / MAP_HEIGHT) * 0.22;
-    setPoints((current) => [...current, { longitude: Number(longitude.toFixed(6)), latitude: Number(latitude.toFixed(6)) }]);
+    invalidatePurchase();setPoints((current) => [...current, { longitude: Number(longitude.toFixed(6)), latitude: Number(latitude.toFixed(6)) }]);
   };
 
   const addLngLatPoint = (point: MapPoint) => {
-    setPoints((current) => [...current, point]);
+    invalidatePurchase();setPoints((current) => [...current, point]);
   };
 
   const handleMapMessage = (event: any) => {
@@ -318,14 +322,14 @@ export default function App() {
         {screen === "setup" && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Analysis Setup</Text>
-            <TextInput style={styles.input} value={analysisName} onChangeText={setAnalysisName} placeholder="Property name" placeholderTextColor="#7f8d7a" />
+            <TextInput style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Property name" placeholderTextColor="#7f8d7a" />
             <Text style={styles.meta}>Analysis mode: {analysisModeLabel(analysisMode)}</Text>
             <View style={styles.row}>
               {ANALYSIS_MODE_OPTIONS.map((option) => (
                 <ActionButton
                   key={option.value}
                   label={option.label}
-                  onPress={() => setAnalysisMode(option.value)}
+                  onPress={() => {invalidatePurchase();setAnalysisMode(option.value)}}
                   primary={analysisMode === option.value}
                 />
               ))}
@@ -333,14 +337,16 @@ export default function App() {
             <Text style={[styles.meta, isValid ? styles.success : styles.error]}>
               {polygon ? `${acreage.toLocaleString()} acres` : "Tap the terrain canvas to add polygon points."}
             </Text>
+            {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
             {renderMapControls()}
             {renderMap()}
             <View style={styles.row}>
-              <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={!polygon || !isValid} />
-              <ActionButton label="Sample Polygon" onPress={() => setPoints(samplePoints())} />
+              <ActionButton label="Confirm Acreage & Price" onPress={requestQuote} disabled={!polygon||!isValid} />
+              <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={!polygon || !isValid||!purchase?.quote} />
+              <ActionButton label="Sample Polygon" onPress={() => {invalidatePurchase();setPoints(samplePoints())}} />
             </View>
             <View style={styles.row}>
-              <ActionButton label="Clear" onPress={() => setPoints([])} />
+              <ActionButton label="Clear" onPress={() => {invalidatePurchase();setPoints([])}} />
             </View>
             <TextInput
               style={styles.input}
@@ -353,6 +359,8 @@ export default function App() {
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
         )}
+
+        {screen==="payment"&&purchase&&<PaymentGate initial={purchase} onComplete={completePaidAnalysis} onBack={()=>setScreen("setup")}/>}
 
         {screen === "processing" && (
           <View style={styles.card}>
@@ -580,6 +588,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
+  purchaseQuote:{backgroundColor:"#24251a",borderColor:"#d0a65d",borderWidth:1,borderRadius:16,padding:14,gap:6},
   error: {
     color: "#d68375",
   },
