@@ -12,17 +12,20 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose }: P
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [agreementsAccepted, setAgreementsAccepted] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
   const [message, setMessage] = useState("");
 
   const submit = async () => {
     const paths: Record<string, string> = { login: "/login", register: "/register", verify: "/verify-email", forgot: "/forgot-password", reset: "/reset-password" };
-    const body = mode === "reset" ? { token, newPassword } : mode === "verify" ? { token } : { email, password };
+    const body = mode === "reset" ? { token, password: newPassword, confirm_password: newPassword } : mode === "verify" ? { token } : mode === "register" ? { email, password, first_name: firstName, last_name: lastName, terms_accepted: agreementsAccepted, privacy_accepted: agreementsAccepted, waiver_accepted: agreementsAccepted } : { email, password };
     try {
       setMessage("Working…");
       const result = await accountRequest(paths[mode], body);
       await storeSession(result);
-      if (mode === "login" || result.accessToken || result.tokens?.accessToken) {
+      if (mode === "login" || result.token) {
         onAuthenticated((await fetchAccount()).user);
       } else {
         setMessage(mode === "forgot" ? "Check your email for reset instructions." : "Request accepted. Check your email if prompted.");
@@ -32,7 +35,7 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose }: P
   };
 
   const signOut = async () => {
-    try { await accountRequest("/logout", {}); } finally { await clearSession(); onSignedOut(); }
+    await clearSession(); onSignedOut();
   };
 
   const removeAccount = () => Alert.alert("Delete account?", "This permanently deletes your shared HuntIntel account.", [
@@ -47,10 +50,11 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose }: P
     <Text style={styles.eyebrow}>HuntIntel Terrain</Text><Text style={styles.title}>{mode === "login" ? "Sign in" : mode === "register" ? "Create account" : mode === "verify" ? "Verify email" : mode === "forgot" ? "Forgot password" : mode === "reset" ? "Reset password" : "Account & security"}</Text>
     {["login", "register", "forgot"].includes(mode) && <TextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor="#82907e" autoCapitalize="none" keyboardType="email-address" autoComplete="email" />}
     {["login", "register"].includes(mode) && <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} autoComplete={mode === "login" ? "current-password" : "new-password"} />}
+    {mode === "register" && <><TextInput style={styles.input} value={firstName} onChangeText={setFirstName} placeholder="First name" placeholderTextColor="#82907e" autoComplete="given-name" /><TextInput style={styles.input} value={lastName} onChangeText={setLastName} placeholder="Last name" placeholderTextColor="#82907e" autoComplete="family-name" /><Button label={agreementsAccepted ? "Agreements accepted ✓" : "Accept Terms, Privacy Policy & Waiver"} onPress={() => setAgreementsAccepted(!agreementsAccepted)} /></>}
     {["verify", "reset"].includes(mode) && <TextInput style={styles.input} value={token} onChangeText={setToken} placeholder="Email token" placeholderTextColor="#82907e" autoCapitalize="none" />}
     {mode === "reset" && <TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} />}
     {["login", "register", "reset", "security"].includes(mode) && <Button label={showPasswords ? "Hide passwords" : "Show passwords"} onPress={() => setShowPasswords(!showPasswords)} />}
-    {mode === "security" ? <><Text style={styles.meta}>{user?.email || "Verified HuntIntel account"}</Text><TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="Current password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} /><TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} /><Button label="Change password" primary onPress={async () => { try { await accountRequest("/change-password", { currentPassword: password, newPassword }); setMessage("Password changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to change password."); } }} /><Button label="Sign out" onPress={signOut} /><Button label="Delete account" danger onPress={removeAccount} />{onClose && <Button label="Back to Terrain" onPress={onClose} />}</> : <Button label="Continue" primary onPress={submit} />}
+    {mode === "security" ? <><Text style={styles.meta}>{user?.email || "Verified HuntIntel account"}</Text><TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="Current password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} /><TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} /><Button label="Change password" primary onPress={async () => { try { await accountRequest("/change-password", { current_password: password, new_password: newPassword, confirm_password: newPassword }); setMessage("Password changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to change password."); } }} /><Button label="Sign out" onPress={signOut} /><Button label="Delete account" danger onPress={removeAccount} />{onClose && <Button label="Back to Terrain" onPress={onClose} />}</> : <Button label="Continue" primary onPress={submit} />}
     {mode === "login" && <><Button label="Create Account" onPress={() => setMode("register")} /><Button label="Forgot Password" onPress={() => setMode("forgot")} /></>}
     {mode === "verify" && <Button label="Resend Verification" onPress={async () => { try { await accountRequest("/resend-verification", { email }); setMessage("Verification email requested."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to resend."); } }} />}
     {!["login", "security"].includes(mode) && <Button label="Back to Sign In" onPress={() => setMode("login")} />}
