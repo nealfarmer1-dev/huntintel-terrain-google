@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 import {
   Pressable,
@@ -10,11 +11,12 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchMapConfig, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import "./src/navigation-background";
 import { NavigationPanel } from "./src/NavigationPanel";
+import { DEFAULT_LAYER_PREFERENCES, normalizeLayerPreferences, toggleLayer } from "./src/map-layers";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
@@ -57,7 +59,7 @@ function safeJson(value: unknown) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable, userLocation, userLocationEnabled }: any) {
+function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled }: any) {
   const style = mapboxStyleFor(basemap);
   const center = polygon?.coordinates?.[0]?.[0] || [-87.0, 32.6];
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
@@ -72,6 +74,7 @@ const waypoints=${safeJson(waypoints || [])};
 const style=${safeJson(style)};
 const overlay=${safeJson(overlay || null)};
 const labelsVisible=${safeJson(labelsVisible)};
+const layerPreferences=${safeJson(layerPreferences || {analysis:{boundary:true,waypoints:true,features:true,relationships:true},field:{current_location:true}})};
 const editable=${safeJson(editable)};
 const initialUserLocation=${safeJson(userLocation || null)};
 const initialUserLocationEnabled=${safeJson(Boolean(userLocationEnabled))};
@@ -88,6 +91,7 @@ function addLayers(){if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay
 if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{}}]}});map.addLayer({id:'analysis-polygon-fill',type:'fill',source:'analysis-polygon',paint:{'fill-color':'#d0a65d','fill-opacity':.18}});map.addLayer({id:'analysis-polygon-line',type:'line',source:'analysis-polygon',paint:{'line-color':'#f0d293','line-width':3}})}
 map.addSource('analysis-features',{type:'geojson',data:fc(features)});map.addLayer({id:'analysis-features-circle',type:'circle',source:'analysis-features',paint:{'circle-color':'#d0a65d','circle-radius':7,'circle-stroke-color':'#10140f','circle-stroke-width':2}});map.addSource('analysis-waypoints',{type:'geojson',data:fc(waypoints)});map.addLayer({id:'analysis-waypoints-circle',type:'circle',source:'analysis-waypoints',paint:{'circle-color':'#89b37f','circle-radius':7,'circle-stroke-color':'#e6c27a','circle-stroke-width':2}});
 if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
+[['analysis-polygon-fill','boundary'],['analysis-polygon-line','boundary'],['analysis-features-circle','features'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
 try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);features.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});waypoints.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});if(any)map.fitBounds(b,{padding:45,maxZoom:15,duration:0})}catch(e){}
 }
 map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
@@ -117,12 +121,16 @@ export default function App() {
   const [offlineStatus, setOfflineStatus] = useState("");
   const [offlineManifest, setOfflineManifest] = useState<any>(null);
   const [offlineDownload, setOfflineDownload] = useState<{ id: string; controller: AbortController } | null>(null);
+  const [layerPreferences, setLayerPreferences] = useState<any>(DEFAULT_LAYER_PREFERENCES);
+  const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
   const isValid = acreage >= MIN_ACRES && acreage <= MAX_ACRES;
 
   useEffect(() => { fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
+  useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
+  const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
   if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
@@ -225,7 +233,7 @@ export default function App() {
     <View style={styles.mapControlPanel}>
       <Text style={styles.meta}>Basemap</Text>
       <View style={styles.row}>
-        {MAPBOX_STYLE_OPTIONS.map((option: any) => <ActionButton key={option.value} label={option.label} onPress={() => setBasemap(option.value)} primary={basemap === option.value} />)}
+        {MAPBOX_STYLE_OPTIONS.map((option: any) => <ActionButton key={option.value} label={option.label} onPress={() => {setBasemap(option.value);setLayers(normalizeLayerPreferences({...layerPreferences,basemap:option.value}));}} primary={basemap === option.value} />)}
       </View>
       <Text style={styles.meta}>USGS 3DEP overlay</Text>
       <View style={styles.row}>
@@ -234,6 +242,10 @@ export default function App() {
       <View style={styles.row}>
         <ActionButton label="Labels" onPress={() => setLabelsVisible((current) => !current)} primary={labelsVisible} />
       </View>
+      <Text style={styles.meta}>Analysis layers</Text><View style={styles.row}>{Object.keys(layerPreferences.analysis).map((key)=><ActionButton key={key} label={key} onPress={()=>setLayers(toggleLayer(layerPreferences,"analysis",key))} primary={layerPreferences.analysis[key]}/>)}</View>
+      <Text style={styles.meta}>Field layers</Text><View style={styles.row}>{Object.keys(layerPreferences.field).map((key)=><ActionButton key={key} label={key.replace("_"," ")} onPress={()=>setLayers(toggleLayer(layerPreferences,"field",key))} primary={layerPreferences.field[key]}/>)}</View>
+      <Text style={styles.meta}>GIS layers</Text><View style={styles.row}>{Object.keys(layerPreferences.gis).map((key)=>{const available=key!=="parcels"||mapConfig.providers.some((p:any)=>p.layers?.some((l:any)=>l.type===key));return <ActionButton key={key} label={available?key:`${key} unavailable`} disabled={!available} onPress={()=>setLayers(toggleLayer(layerPreferences,"gis",key))} primary={layerPreferences.gis[key]}/>})}</View>
+      <Text style={styles.meta}>Team layers</Text><View style={styles.row}><ActionButton label="Team positions unavailable" onPress={() => {}} disabled /></View>
     </View>
   );
 
@@ -254,7 +266,7 @@ export default function App() {
           <WebView
             originWhitelist={["*"]}
             geolocationEnabled
-            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, editable: screen === "setup", userLocation, userLocationEnabled }) }}
+            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable: screen === "setup", userLocation, userLocationEnabled }) }}
             onMessage={handleMapMessage}
             style={styles.webView}
           />

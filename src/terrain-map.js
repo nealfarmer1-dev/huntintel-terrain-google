@@ -25,9 +25,9 @@ export function usgs3depTileUrl(layerName) {
 }
 
 export const MAPBOX_STYLE_OPTIONS = [
-  { value: "satellite", label: "Satellite", style: "mapbox://styles/mapbox/satellite-streets-v12" },
-  { value: "outdoors", label: "Outdoors / Topographic", style: "mapbox://styles/mapbox/outdoors-v12" },
-  { value: "streets", label: "Streets", style: "mapbox://styles/mapbox/streets-v12" },
+  { value: "satellite", label: "Satellite", style: "mapbox://styles/mapbox/satellite-v9" },
+  { value: "hybrid", label: "Hybrid", style: "mapbox://styles/mapbox/satellite-streets-v12" },
+  { value: "topographic", label: "Topographic", style: "mapbox://styles/mapbox/outdoors-v12" },
   {
     value: "3dep",
     label: "USGS 3DEP",

@@ -69,5 +69,6 @@ export const fetchBreadcrumbs = (id) => request(`/api/terrain/analyses/${encodeU
 export const createBreadcrumbRecord = (id, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs`, { method: "POST", body: JSON.stringify(value) });
 export const updateBreadcrumbRecord = (id, breadcrumbId, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs/${encodeURIComponent(breadcrumbId)}`, { method: "PATCH", body: JSON.stringify(value) });
 export const deleteBreadcrumbRecord = (id, breadcrumbId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs/${encodeURIComponent(breadcrumbId)}`, { method: "DELETE" });
+export const fetchMapConfig = () => request("/api/terrain/map-config");
 
 export { baseUrl as terrainApiBaseUrl };
