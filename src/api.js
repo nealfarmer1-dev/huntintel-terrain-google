@@ -1,22 +1,25 @@
-import { accessToken } from "./auth";
+import { accessToken, clearSession } from "./auth";
 import { queueOfflineOperation } from "./offline";
 
 const baseUrl = (process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
 export async function request(path, options = {}) {
   const token = await accessToken();
+  const { correlationId: suppliedCorrelationId, ...requestOptions } = options;
+  const requestCorrelationId = suppliedCorrelationId || globalThis.crypto?.randomUUID?.() || `android-${Date.now()}`;
   const response = await fetch(`${baseUrl}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-Correlation-ID": requestCorrelationId,
       ...(options.headers || {}),
     },
-    ...options,
+    ...requestOptions,
   });
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error=new Error(payload?.error?.message||"Terrain API request failed.");error.code=payload?.error?.code;error.details=payload?.error?.details;throw error;
+    const error=new Error(payload?.error?.message||"Terrain API request failed.");error.code=payload?.error?.code;error.details=payload?.error?.details;error.correlationId=response.headers?.get?.("X-Correlation-ID")||payload?.correlationId||requestCorrelationId;error.retryAfter=Number(response.headers?.get?.("Retry-After")||0)||null;if(response.status===401||error.code==="ACCOUNT_ACCESS_REVOKED")await clearSession();throw error;
   }
 
   return payload;
@@ -24,6 +27,7 @@ export async function request(path, options = {}) {
 
 export function accountRequest(path, body, method = "POST") { return request(`/api/account${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) }); }
 export function fetchAccount() { return request("/api/account/session"); }
+export const fetchFeatureFlags=()=>request("/api/terrain/features");
 export const createSarObservationOffline=async(analysisId,sessionId,value)=>{try{return await createSarObservation(sessionId,value)}catch(error){if(!(error instanceof TypeError))throw error;return{queued:true,pendingCount:await queueOfflineOperation(analysisId,"sar.observation",{sessionId,...value})}}};export const updateSarAssignmentOffline=async(analysisId,sessionId,assignmentId,status)=>{try{return await updateSarAssignment(sessionId,assignmentId,status)}catch(error){if(!(error instanceof TypeError))throw error;return{queued:true,pendingCount:await queueOfflineOperation(analysisId,"sar.assignment.update",{sessionId,assignmentId,status})}}};
 export const createSarAssignment=(id,value)=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/assignments`,{method:"POST",body:JSON.stringify(value)});export const updateSarAssignment=(id,assignmentId,status)=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/assignments/${encodeURIComponent(assignmentId)}`,{method:"PATCH",body:JSON.stringify({status})});
 export const startSarSession=value=>request("/api/terrain/sar-sessions",{method:"POST",body:JSON.stringify({...value,safetyAcknowledged:true})});export const fetchActiveSarSession=(teamId,analysisJobId)=>request(`/api/terrain/sar-sessions/active?teamId=${encodeURIComponent(teamId)}&analysisJobId=${encodeURIComponent(analysisJobId)}`);export const fetchSarSession=id=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}`);export const endSarSession=id=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/end`,{method:"POST",body:"{}"});export const startSarSharing=(id,backgroundAllowed=false)=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/sharing/start`,{method:"POST",body:JSON.stringify({optIn:true,backgroundAllowed})});export const stopSarSharing=id=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/sharing/stop`,{method:"POST",body:"{}"});export const publishSarPosition=(id,value)=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/positions`,{method:"POST",body:JSON.stringify(value)});export const fetchSarPositions=id=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/positions`);export const fetchSarEvents=(id,cursor=0)=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/events?cursor=${encodeURIComponent(cursor)}`);export const createSarObservation=(id,value)=>request(`/api/terrain/sar-sessions/${encodeURIComponent(id)}/observations`,{method:"POST",body:JSON.stringify(value)});

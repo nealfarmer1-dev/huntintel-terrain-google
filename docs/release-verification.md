@@ -1,0 +1,5 @@
+# Android build and release verification
+
+CI expectation: Node 22, `npm ci`, `npm test`, `npx tsc --noEmit`, and `npx expo export --platform android`. Configure only `EXPO_PUBLIC_TERRAIN_API_BASE_URL` and an app-restricted `EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN`. Keystores/Play credentials remain outside Git and no Play submission is automated by Build Section 11.
+
+Emulator script: login; draft/quote/local development payment API; processing/library replay; media permission-on-use; offline package download/open; restart; simulated location/navigation; breadcrumb lifecycle; external Google Maps handoff where installed; team share; opt-in foreground SAR; disconnect, queue allowed durable operations, reconnect twice and verify no duplicates; PDF open/share; revoke access and verify future API/download/sync/SAR denial. Inspect background-location and foreground-service permissions/configuration and the persistent visible stop affordance. Emulator results do not establish physical-device OEM background execution behavior.
