@@ -14,13 +14,16 @@
       ["expo-audio", {
         "microphonePermission": "HuntIntel Terrain uses the microphone only when you choose to record a voice note."
       }],
-      ["expo-location", { "locationWhenInUsePermission": "HuntIntel Terrain uses your location only when you activate navigation.", "isAndroidBackgroundLocationEnabled": true, "isAndroidForegroundServiceEnabled": true }]
+      ["expo-location", { "locationWhenInUsePermission": "HuntIntel Terrain uses your location only when you activate navigation or opt in to live SAR sharing.", "isAndroidBackgroundLocationEnabled": true, "isAndroidForegroundServiceEnabled": true }]
     ],
     "android": {
       "package": "com.huntintel.terrain.google",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "CAMERA",
         "RECORD_AUDIO"
       ]

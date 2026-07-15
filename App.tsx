@@ -15,12 +15,14 @@ import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttach
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import "./src/navigation-background";
+import { stopSarBackground } from "./src/sar-background";
 import { NavigationPanel } from "./src/NavigationPanel";
 import { DEFAULT_LAYER_PREFERENCES, normalizeLayerPreferences, toggleLayer } from "./src/map-layers";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
 import { TeamsScreen } from "./src/TeamsScreen";
+import { SarScreen } from "./src/SarScreen";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
@@ -41,7 +43,7 @@ const ANALYSIS_MODE_OPTIONS = [
   { value: "military_terrain", label: "Terrain Assessment" },
 ] as const;
 
-type Screen = "setup" | "processing" | "results" | "report" | "waypoint" | "library" | "teams";
+type Screen = "setup" | "processing" | "results" | "report" | "waypoint" | "library" | "teams" | "sar";
 type MapPoint = { longitude: number; latitude: number };
 
 function sortWaypoints(waypoints: TerrainWaypoint[]) {
@@ -129,12 +131,12 @@ export default function App() {
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
   const isValid = acreage >= MIN_ACRES && acreage <= MAX_ACRES;
 
-  useEffect(() => { fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
+  useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
-  if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
+  if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
 
   const loadLibrary = async (page = 1) => {
     setScreen("library"); setLibraryLoading(true); setError("");
@@ -246,7 +248,7 @@ export default function App() {
       <Text style={styles.meta}>Analysis layers</Text><View style={styles.row}>{Object.keys(layerPreferences.analysis).map((key)=><ActionButton key={key} label={key} onPress={()=>setLayers(toggleLayer(layerPreferences,"analysis",key))} primary={layerPreferences.analysis[key]}/>)}</View>
       <Text style={styles.meta}>Field layers</Text><View style={styles.row}>{Object.keys(layerPreferences.field).map((key)=><ActionButton key={key} label={key.replace("_"," ")} onPress={()=>setLayers(toggleLayer(layerPreferences,"field",key))} primary={layerPreferences.field[key]}/>)}</View>
       <Text style={styles.meta}>GIS layers</Text><View style={styles.row}>{Object.keys(layerPreferences.gis).map((key)=>{const available=key!=="parcels"||mapConfig.providers.some((p:any)=>p.layers?.some((l:any)=>l.type===key));return <ActionButton key={key} label={available?key:`${key} unavailable`} disabled={!available} onPress={()=>setLayers(toggleLayer(layerPreferences,"gis",key))} primary={layerPreferences.gis[key]}/>})}</View>
-      <Text style={styles.meta}>Team layers</Text><View style={styles.row}><ActionButton label="Team positions unavailable" onPress={() => {}} disabled /></View>
+      <Text style={styles.meta}>Team layers</Text><View style={styles.row}><ActionButton label="Team Positions (Live SAR)" onPress={() => setScreen("sar")} /></View>
     </View>
   );
 
@@ -305,10 +307,12 @@ export default function App() {
         <Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text>
         <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
         <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
+        <ActionButton label="Live SAR" onPress={() => setScreen("sar")} primary={screen === "sar"} />
         <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
         {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
         {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
+        {screen === "sar" && <SarScreen onClose={() => setScreen("setup")} />}
 
         {screen === "setup" && (
           <View style={styles.card}>
