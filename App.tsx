@@ -13,6 +13,8 @@ import {
 import { createAnalysis, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
+import "./src/navigation-background";
+import { NavigationPanel } from "./src/NavigationPanel";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
@@ -346,6 +348,7 @@ export default function App() {
             <Text style={styles.meta}>Mode: {analysisModeLabel(analysis.analysisMode)}</Text>
             {renderMapControls()}
             {renderMap()}
+            <NavigationPanel analysisJobId={analysis.analysisJobId || savedAnalysisId} waypoints={waypointCards} />
             <Text style={styles.metric}>Approximate acreage: {Number(analysis.summary?.approximateAcreage || acreage).toLocaleString()} acres</Text>
             <Text style={styles.metric}>Features: {analysis.features.length}</Text>
             <Text style={styles.metric}>Waypoints: {analysis.waypoints.length}</Text>

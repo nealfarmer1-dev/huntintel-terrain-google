@@ -65,5 +65,9 @@ export const fetchStorageQuota = () => request("/api/storage/quota");
 export const fetchOfflineManifest = (id, attachmentIds = [], options = {}) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/manifest?attachments=${encodeURIComponent(attachmentIds.join(","))}&provider=${encodeURIComponent(options.provider || "")}&minZoom=${encodeURIComponent(options.minZoom || "")}&maxZoom=${encodeURIComponent(options.maxZoom || "")}`);
 export const pushOfflineSync = (id, operations) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/sync`, { method: "POST", body: JSON.stringify({ operations }) });
 export const pullOfflineSync = (id, cursor = 0) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/offline/sync?cursor=${encodeURIComponent(cursor)}`);
+export const fetchBreadcrumbs = (id) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs`);
+export const createBreadcrumbRecord = (id, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs`, { method: "POST", body: JSON.stringify(value) });
+export const updateBreadcrumbRecord = (id, breadcrumbId, value) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs/${encodeURIComponent(breadcrumbId)}`, { method: "PATCH", body: JSON.stringify(value) });
+export const deleteBreadcrumbRecord = (id, breadcrumbId) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/breadcrumbs/${encodeURIComponent(breadcrumbId)}`, { method: "DELETE" });
 
 export { baseUrl as terrainApiBaseUrl };
