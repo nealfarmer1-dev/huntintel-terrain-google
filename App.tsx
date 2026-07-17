@@ -25,11 +25,13 @@ import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
 import { TeamsScreen } from "./src/TeamsScreen";
 import { SarScreen } from "./src/SarScreen";
 import { PdfReportPanel } from "./src/PdfReportPanel";
+import { AnalysisResultsTabs } from "./src/AnalysisResultsTabs";
 import { PaymentGate } from "./src/PaymentGate";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
 import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
+import { createResultsState, entityGeometry, navigationTarget, selectEntity, selectedEntity, stateForAnalysis } from "./src/analysis-results";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -94,15 +96,15 @@ function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinat
 function ensureDem(){if(map.getSource('mapbox-dem'))return true;try{map.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1',tileSize:512,maxzoom:14});return true}catch(e){return false}}
 function set3d(next){terrainEnabled=!!next;if(terrainEnabled&&ensureDem()){map.setTerrain({source:'mapbox-dem',exaggeration:1.45});map.easeTo({pitch:60,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.add('active');return}try{map.setTerrain(null)}catch(e){}map.easeTo({pitch:0,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.remove('active')}
 let locationWatchId=null;const locateButton=document.getElementById('locate-me');const hint=document.querySelector('.hint');function consume(e){e.preventDefault();e.stopPropagation()}function ensureUserLocationLayer(){if(map.getSource('user-location'))return;map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':7,'circle-color':'#5aa7ff','circle-stroke-color':'#fff','circle-stroke-width':3}})}function setUserLocationMarker(location,moveCamera){if(!location||!Number.isFinite(location.longitude)||!Number.isFinite(location.latitude))return;ensureUserLocationLayer();map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[location.longitude,location.latitude]},properties:{}}]});if(moveCamera)map.easeTo({center:[location.longitude,location.latitude],zoom:15,duration:500});if(locateButton)locateButton.classList.add('active')}function clearUserLocation(){if(locationWatchId!=null&&navigator.geolocation){navigator.geolocation.clearWatch(locationWatchId)}locationWatchId=null;if(map.getSource('user-location'))map.getSource('user-location').setData({type:'FeatureCollection',features:[]});if(locateButton)locateButton.classList.remove('active');postedLocationToHost=false;post('user-location-cleared',{})}let postedLocationToHost=Boolean(initialUserLocation);function updateUserLocation(pos){var location={longitude:pos.coords.longitude,latitude:pos.coords.latitude};setUserLocationMarker(location,true);if(!postedLocationToHost){postedLocationToHost=true;post('user-location',location)}}function showLocationDenied(){if(hint)hint.textContent='Location is unavailable or permission was denied.';clearUserLocation()}function startUserLocation(){if(locationWatchId!=null)return;if(!navigator.geolocation){showLocationDenied();return}locationWatchId=navigator.geolocation.watchPosition(updateUserLocation,showLocationDenied,{enableHighAccuracy:true,maximumAge:10000,timeout:10000})}document.getElementById('toggle-3d').onclick=function(e){consume(e);set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){consume(e);map.easeTo({bearing:0,duration:450})};locateButton.onclick=function(e){consume(e);if(locationWatchId!=null){clearUserLocation();return}startUserLocation()};
-function fc(items){return{type:'FeatureCollection',features:(items||[]).filter(function(i){return i&&i.geometry}).map(function(i){return{type:'Feature',geometry:i.geometry,properties:i}})}}
+function category(i){var v=String(i.featureType||(i.properties&&i.properties.definitionKey)||'').toLowerCase();var groups=[['travel',['funnel','pinch','corridor','travel','draw','crossing']],['bedding',['bed','bedding','thermal']],['ridges',['ridge','saddle','bench','spur','knob','hill']],['water',['water','creek','stream','river','drain','pond','wet']],['feeding',['feed','food','staging','field','opening']],['access',['access','wind','pressure','road','trail','route']]];for(var g=0;g<groups.length;g++)for(var t=0;t<groups[g][1].length;t++)if(v.indexOf(groups[g][1][t])>=0)return groups[g][0];return'other'}function fc(items,categorized){return{type:'FeatureCollection',features:(items||[]).filter(function(i){return i&&i.id&&i.geometry}).map(function(i){return{type:'Feature',id:i.id,geometry:i.geometry,properties:{id:i.id,title:i.title||'',featureType:i.featureType||'',waypointType:i.waypointType||'',score:i.score,confidence:i.confidence,sourceFeatureId:i.sourceFeatureId||'',category:categorized?category(i):''}}})}}
 function addLayers(){if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay',{type:'raster',tiles:['${USGS_3DEP_WMS_BASE}?service=WMS&version=1.1.1&request=GetMap&layers='+encodeURIComponent(overlay.layer)+'&styles=&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256'],tileSize:256,attribution:'USGS 3DEP / The National Map'});map.addLayer({id:'usgs-3dep-overlay',type:'raster',source:'usgs-3dep-overlay',paint:{'raster-opacity':overlay.value==='hillshade'?.62:.78}})}
 if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{}}]}});map.addLayer({id:'analysis-polygon-fill',type:'fill',source:'analysis-polygon',paint:{'fill-color':'#d0a65d','fill-opacity':.18}});map.addLayer({id:'analysis-polygon-line',type:'line',source:'analysis-polygon',paint:{'line-color':'#f0d293','line-width':3}})}
-map.addSource('analysis-features',{type:'geojson',data:fc(features)});map.addLayer({id:'analysis-features-circle',type:'circle',source:'analysis-features',paint:{'circle-color':'#d0a65d','circle-radius':7,'circle-stroke-color':'#10140f','circle-stroke-width':2}});map.addSource('analysis-waypoints',{type:'geojson',data:fc(waypoints)});map.addLayer({id:'analysis-waypoints-circle',type:'circle',source:'analysis-waypoints',paint:{'circle-color':'#89b37f','circle-radius':7,'circle-stroke-color':'#e6c27a','circle-stroke-width':2}});
+map.addSource('analysis-features',{type:'geojson',data:fc(features,true)});map.addLayer({id:'analysis-features-fill',type:'fill',source:'analysis-features',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#d0a65d','fill-opacity':.24}});map.addLayer({id:'analysis-features-line',type:'line',source:'analysis-features',filter:['in',['geometry-type'],['literal',['LineString','Polygon']]],paint:{'line-color':'#e6c27a','line-width':4,'line-opacity':.86}});map.addLayer({id:'analysis-features-circle',type:'circle',source:'analysis-features',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#d0a65d','circle-radius':7,'circle-stroke-color':'#10140f','circle-stroke-width':2}});map.addSource('analysis-waypoints',{type:'geojson',data:fc(waypoints,false)});map.addLayer({id:'analysis-waypoints-circle',type:'circle',source:'analysis-waypoints',paint:{'circle-color':'#89b37f','circle-radius':7,'circle-stroke-color':'#e6c27a','circle-stroke-width':2}});map.addSource('analysis-selection',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'analysis-selection-fill',type:'fill',source:'analysis-selection',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#fff2a8','fill-opacity':.35}});map.addLayer({id:'analysis-selection-line',type:'line',source:'analysis-selection',filter:['in',['geometry-type'],['literal',['LineString','Polygon']]],paint:{'line-color':'#fff','line-width':7}});map.addLayer({id:'analysis-selection-circle',type:'circle',source:'analysis-selection',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#fff2a8','circle-radius':13,'circle-stroke-color':'#fff','circle-stroke-width':4}});map.addSource('analysis-related',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'analysis-related-circle',type:'circle',source:'analysis-related',paint:{'circle-color':'#89b37f','circle-radius':11,'circle-stroke-color':'#fff','circle-stroke-width':3}});
 if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
-[['analysis-polygon-fill','boundary'],['analysis-polygon-line','boundary'],['analysis-features-circle','features'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
+[['analysis-polygon-fill','boundary'],['analysis-polygon-line','boundary'],['analysis-features-fill','features'],['analysis-features-line','features'],['analysis-features-circle','features'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
 try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);features.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});waypoints.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});if(!initialCamera&&any)map.fitBounds(b,{padding:45,maxZoom:15,duration:0})}catch(e){}
 }
-map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+function entity(type,id){var list=type==='waypoint'?waypoints:features;return(list||[]).find(function(i){return i&&i.id===id})}function coords(geometry,out){if(!geometry)return out;function walk(v){if(!Array.isArray(v))return;if(typeof v[0]==='number'&&typeof v[1]==='number'){out.push(v);return}v.forEach(walk)}walk(geometry.coordinates);return out}window.__terrainSelect=function(command){if(!map.isStyleLoaded())return;var item=entity(command.type,command.id),selected=item&&item.geometry?[{type:'Feature',id:item.id,geometry:item.geometry,properties:{id:item.id}}]:[];map.getSource('analysis-selection').setData({type:'FeatureCollection',features:selected});var related=command.type==='terrainFeature'?(waypoints||[]).filter(function(w){return w.sourceFeatureId===command.id}):[];map.getSource('analysis-related').setData(fc(related,false));var categoryId=command.category||null;map.setPaintProperty('analysis-features-circle','circle-opacity',categoryId?['case',['==',['get','category'],categoryId],1,.2]:1);map.setPaintProperty('analysis-features-line','line-opacity',categoryId?['case',['==',['get','category'],categoryId],.95,.18]:.86);map.setPaintProperty('analysis-features-fill','fill-opacity',categoryId?['case',['==',['get','category'],categoryId],.32,.06]:.24);if(!command.focus||!item||!item.geometry)return;var points=coords(item.geometry,[]);if(!points.length)return;if(item.geometry.type==='Point'){map.easeTo({center:points[0],zoom:Math.max(map.getZoom(),14),duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});return}var bounds=points.reduce(function(b,p){return b.extend(p)},new mapboxgl.LngLatBounds(points[0],points[0]));map.fitBounds(bounds,{padding:55,maxZoom:15,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500})};['analysis-features-fill','analysis-features-line','analysis-features-circle'].forEach(function(layer){map.on('click',layer,function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'terrainFeature',id:id})})});map.on('click','analysis-waypoints-circle',function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'waypoint',id:id})});map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
 })();</script></body></html>`;
 }
 
@@ -116,6 +118,8 @@ export default function App() {
   const [analysis, setAnalysis] = useState<TerrainAnalysisResponse | null>(null);
   const [error, setError] = useState("");
   const [selectedWaypoint, setSelectedWaypoint] = useState<TerrainWaypoint | null>(null);
+  const [resultsUi, setResultsUi] = useState<any>(createResultsState());
+  const [navigationTargetEntity, setNavigationTargetEntity] = useState<any>(null);
   const [basemap, setBasemap] = useState("satellite");
   const [terrainOverlay, setTerrainOverlay] = useState("");
   const [labelsVisible, setLabelsVisible] = useState(true);
@@ -133,7 +137,7 @@ export default function App() {
   const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
   const [purchase,setPurchase]=useState<any>(null);
   const [quotedSetupKey,setQuotedSetupKey]=useState<string|null>(null),[hadQuote,setHadQuote]=useState(false),[quoteLoading,setQuoteLoading]=useState(false);
-  const quoteRequest=useRef(false),mapCamera=useRef<any>(null);
+  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),resultsMapRef=useRef<any>(null),analysisLoadGeneration=useRef(0);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -142,26 +146,30 @@ export default function App() {
   const currentSetupKey=useMemo(()=>setupConfigurationKey({analysisName,analysisMode,propertyId:null,polygon}),[analysisName,analysisMode,polygon]);
   const quoteCurrent=quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey});
   const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid:Boolean(polygon&&isValid),quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
+  const mapHtml=useMemo(()=>{const nextPolygon=analysis?.summary?analysis.requestPolygon||polygon||buildPolygonFromPoints(samplePoints()):polygon;if(!nextPolygon)return null;return buildMapHtml({token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup",userLocation,userLocationEnabled,camera:mapCamera.current});},[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,userLocation,userLocationEnabled]);
+  const mapSource=useMemo(()=>mapHtml?{html:mapHtml}:null,[mapHtml]);
 
   useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
+  useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
   const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
-  const resetSetup=()=>{setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setError("");mapCamera.current=null;setScreen("setup");};
+  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setError("");mapCamera.current=null;setScreen("setup");};
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
   if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
 
   const loadLibrary = async (page = 1) => {
-    setScreen("library"); setLibraryLoading(true); setError("");
+    analysisLoadGeneration.current+=1;setAnalysis(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setScreen("library"); setLibraryLoading(true); setError("");
     try { setLibrary(await fetchAnalyses(page, 12)); setOfflinePackages(await listOfflinePackages()); }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
   };
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
-    try { setError(""); mapCamera.current=null; setScreen("processing"); setSavedAnalysisId(analysisJobId); setAnalysis(await fetchAnalysis(analysisJobId)); setScreen("results"); }
-    catch (nextError) { const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached) { const immutable = cached.manifest.immutable; setAnalysis({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report }); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
+    const generation=++analysisLoadGeneration.current;setAnalysis(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);
+    try { setError(""); mapCamera.current=null; setScreen("processing"); setSavedAnalysisId(analysisJobId); const next=await fetchAnalysis(analysisJobId);if(generation!==analysisLoadGeneration.current)return;setAnalysis(next);setResultsUi(stateForAnalysis(createResultsState(),analysisJobId));setScreen("results"); }
+    catch (nextError) { if(generation!==analysisLoadGeneration.current)return;const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached?.manifest?.analysisJobId===analysisJobId&&cached.manifest.immutable?.analysis?.analysisJobId===analysisJobId) { const immutable = cached.manifest.immutable; setAnalysis({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report }); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
 
   const downloadOffline = async (id: string) => { const controller = new AbortController(); setOfflineDownload({ id, controller }); try { setOfflineStatus("Estimating package…"); const attachmentIds = (await fetchAttachments(id)).items?.map((item: any) => item.id) || []; let manifest = await fetchOfflineManifest(id, attachmentIds); const provider = manifest.map.providers[0]; if (provider) manifest = await fetchOfflineManifest(id, attachmentIds, { provider: provider.id, minZoom: provider.minZoom, maxZoom: Math.min(provider.minZoom + 1, provider.maxZoom) }); await downloadAndSaveOfflinePackage(manifest, { apiBaseUrl: terrainApiBaseUrl, signal: controller.signal, onProgress: (progress: any) => setOfflineStatus(`${progress.completedAssets}/${progress.totalAssets} assets · ${Math.floor((progress.completedBytes / Math.max(1, progress.totalBytes)) * 100)}%`) }); setOfflineStatus("Offline package ready."); } catch (nextError) { setOfflineStatus(nextError instanceof Error && nextError.name === "AbortError" ? "Download canceled; tap Resume / Update to continue." : `Download failed; tap Resume / Update to retry. ${nextError instanceof Error ? nextError.message : ""}`); } finally { setOfflineDownload(null); setOfflinePackages(await listOfflinePackages()); } };
@@ -174,14 +182,18 @@ export default function App() {
       return;
     }
 
+    const requestedAnalysisJobId=savedAnalysisId.trim(),generation=++analysisLoadGeneration.current;setAnalysis(null);setResultsUi(createResultsState(requestedAnalysisJobId));setNavigationTargetEntity(null);
     try {
       setError("");
       mapCamera.current=null;
       setScreen("processing");
-      const nextAnalysis = await fetchAnalysis(savedAnalysisId.trim());
+      const nextAnalysis = await fetchAnalysis(requestedAnalysisJobId);
+      if(generation!==analysisLoadGeneration.current)return;
       setAnalysis(nextAnalysis);
+      setResultsUi(stateForAnalysis(createResultsState(),requestedAnalysisJobId));
       setScreen("results");
     } catch (nextError) {
+      if(generation!==analysisLoadGeneration.current)return;
       setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis.");
       setScreen("setup");
     }
@@ -231,7 +243,7 @@ export default function App() {
   };
 
   const submit=()=>{if(analysisNameError){setError(analysisNameError);return;}if(!quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey})){setError("Setup changed or the quote expired. Confirm acreage and price again.");invalidatePurchase();return;}setError("");setScreen("payment");};
-  const completePaidAnalysis=async(nextAnalysis:any)=>{setAnalysis(nextAnalysis);setSavedAnalysisId(nextAnalysis.analysisJobId||"");setScreen("results");};
+  const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;setAnalysis(nextAnalysis);setSavedAnalysisId(nextAnalysis.analysisJobId||"");setResultsUi(createResultsState(nextAnalysis.analysisJobId||null));setNavigationTargetEntity(null);mapCamera.current=null;setScreen("results");};
 
   const addPoint = (event: { nativeEvent: { locationX: number; locationY: number } }) => {
     const longitude = -87.02 + (event.nativeEvent.locationX / MAP_WIDTH) * 0.36;
@@ -242,6 +254,9 @@ export default function App() {
   const addLngLatPoint = (point: MapPoint) => {
     invalidatePurchase();setPoints((current) => [...current, point]);
   };
+
+  const selectResultEntity=(type:string,id:string,focus=true)=>{if(!analysis)return;const next=selectEntity(resultsUi,analysis,type,id);setResultsUi(next);const entity=selectedEntity(next,analysis);resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify({type,id:entity?.id||null,category:next.activeCategoryFilter||null,focus})});true;`);};
+  const navigateToResult=(entity:any)=>{const target=navigationTarget(entity);if(!target)return;setNavigationTargetEntity({...entity,geometry:{type:"Point",coordinates:[target.longitude,target.latitude]}});setResultsUi((current:any)=>({...current,activeResultsTab:"navigation"}));};
 
   const handleMapMessage = (event: any) => {
     try {
@@ -258,6 +273,7 @@ export default function App() {
         setUserLocationEnabled(false);
       }
       if (message.type === "map-camera" && Array.isArray(message.payload?.center)) mapCamera.current = message.payload;
+      if (message.type === "result-select" && message.payload?.id && ["waypoint","terrainFeature"].includes(message.payload.entityType)) selectResultEntity(message.payload.entityType,message.payload.id,false);
     } catch {
       // Ignore non-HuntIntel WebView messages.
     }
@@ -285,7 +301,7 @@ export default function App() {
 
   const renderMap = () => {
     if (offlineManifest?.map?.tilePlan) return <View style={styles.mapWeb}><WebView originWhitelist={["*"]} source={{ html: renderOfflineMapHtml(offlineManifest) }} /></View>;
-    const nextPolygon = analysis?.summary ? polygon || buildPolygonFromPoints(samplePoints()) : polygon;
+    const nextPolygon = analysis?.summary ? analysis.requestPolygon || polygon || buildPolygonFromPoints(samplePoints()) : polygon;
     if (!nextPolygon) {
       return null;
     }
@@ -300,7 +316,8 @@ export default function App() {
           <WebView
             originWhitelist={["*"]}
             geolocationEnabled
-            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable: screen === "setup", userLocation, userLocationEnabled, camera: mapCamera.current }) }}
+            ref={screen === "results" ? resultsMapRef : undefined}
+            source={mapSource!}
             onMessage={handleMapMessage}
             style={styles.webView}
           />
@@ -315,20 +332,21 @@ export default function App() {
           return <View key={`polygon-${index}`} style={[styles.vertex, { left: marker.left - 6, top: marker.top - 6 }]} />;
         })}
         {screen !== "setup" &&
-          features.map((feature) => {
-            const marker = projectCoordinate(feature.geometry.coordinates, bounds, MAP_WIDTH, MAP_HEIGHT);
-            return <View key={feature.id} style={[styles.featureDot, { left: marker.left - 5, top: marker.top - 5 }]} />;
+          features.filter((feature)=>entityGeometry(feature)?.type==="Point").map((feature) => {
+            const marker = projectCoordinate(entityGeometry(feature).coordinates, bounds, MAP_WIDTH, MAP_HEIGHT);
+            return <Pressable accessibilityRole="button" key={feature.id} onPress={()=>selectResultEntity("terrainFeature",feature.id,false)} style={[styles.featureDot, resultsUi.selectedEntityType==="terrainFeature"&&resultsUi.selectedEntityId===feature.id&&styles.selectedMapDot, { left: marker.left - 5, top: marker.top - 5 }]} />;
           })}
         {screen !== "setup" &&
-          waypoints.map((waypoint) => {
-            const marker = projectCoordinate(waypoint.geometry.coordinates, bounds, MAP_WIDTH, MAP_HEIGHT);
-            return <View key={waypoint.id} style={[styles.waypointDot, { left: marker.left - 5, top: marker.top - 5 }]} />;
+          waypoints.filter((waypoint)=>entityGeometry(waypoint)?.type==="Point").map((waypoint) => {
+            const marker = projectCoordinate(entityGeometry(waypoint).coordinates, bounds, MAP_WIDTH, MAP_HEIGHT);
+            return <Pressable accessibilityRole="button" key={waypoint.id} onPress={()=>selectResultEntity("waypoint",waypoint.id,false)} style={[styles.waypointDot, resultsUi.selectedEntityType==="waypoint"&&resultsUi.selectedEntityId===waypoint.id&&styles.selectedMapDot, { left: marker.left - 5, top: marker.top - 5 }]} />;
           })}
       </Pressable>
     );
   };
 
   const waypointCards = sortWaypoints(analysis?.waypoints || []);
+  const analysisDate = analysis?.completedAt || analysis?.createdAt || null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -399,36 +417,22 @@ export default function App() {
 
         {screen === "results" && analysis && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Results</Text>
+            <Text style={styles.eyebrow}>ANALYSIS RESULTS</Text>
+            <Text style={styles.sectionTitle}>{String(analysis.analysisName || analysis.summary?.analysisName || analysis.report?.title || "Terrain Analysis")}</Text>
             <Text style={styles.meta}>Saved analysis: {analysis.analysisJobId || "not persisted"}</Text>
-            <Text style={styles.meta}>Mode: {analysisModeLabel(analysis.analysisMode)}</Text>
+            <Text style={styles.meta}>Mode: {analysisModeLabel(analysis.analysisMode)} · Status: {analysis.status}{analysisDate?` · ${new Date(analysisDate).toLocaleDateString()}`:""}</Text>
             {renderMapControls()}
             {renderMap()}
-            <NavigationPanel analysisJobId={analysis.analysisJobId || savedAnalysisId} waypoints={waypointCards} />
             <Text style={styles.metric}>Approximate acreage: {Number(analysis.summary?.approximateAcreage || acreage).toLocaleString()} acres</Text>
             <Text style={styles.metric}>Features: {analysis.features.length}</Text>
             <Text style={styles.metric}>Waypoints: {analysis.waypoints.length}</Text>
+            <View style={styles.reportPanel}><Text style={styles.sectionTitle}>{analysis.report?.title || "HTIE Report"}</Text><Text style={styles.meta}>{analysis.report?.overview || "No overview returned."}</Text><Text style={styles.sectionSubtitle}>Key Findings</Text>{(analysis.report?.keyFindings||[]).map((finding:string,index:number)=><Text key={`finding-${index}`} style={styles.meta}>• {finding}</Text>)}{analysis.report?.huntingStrategy?<><Text style={styles.sectionSubtitle}>Hunting Strategy</Text>{(Array.isArray(analysis.report.huntingStrategy)?analysis.report.huntingStrategy:[analysis.report.huntingStrategy]).map((item:string,index:number)=><Text key={`strategy-${index}`} style={styles.meta}>• {item}</Text>)}</>:null}<Text style={styles.sectionSubtitle}>Scouting Notes</Text>{(analysis.report?.scoutingNotes||[]).map((note:string,index:number)=><Text key={`scouting-${index}`} style={styles.meta}>• {note}</Text>)}<Text style={styles.sectionSubtitle}>Limitations</Text>{(analysis.report?.limitations||[]).map((item:string,index:number)=><Text key={`limitation-${index}`} style={styles.meta}>• {item}</Text>)}</View>
+            {!!(analysis.analysisJobId || savedAnalysisId) && <PdfReportPanel key={analysis.analysisJobId || savedAnalysisId} analysisJobId={analysis.analysisJobId || savedAnalysisId} />}
+            <AnalysisResultsTabs analysis={analysis} analysisJobId={analysis.analysisJobId || savedAnalysisId} resultsUi={resultsUi} setResultsUi={setResultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} navigationTargetEntity={navigationTargetEntity} />
             <View style={styles.row}>
               <ActionButton label="Open Report" onPress={() => setScreen("report")} primary />
               <ActionButton label="Back to Setup" onPress={() => setScreen("setup")} />
             </View>
-            <Text style={styles.sectionSubtitle}>Waypoint Detail</Text>
-            {waypointCards.map((waypoint) => (
-              <Pressable
-                key={waypoint.id}
-                style={styles.item}
-                onPress={() => {
-                  setSelectedWaypoint(waypoint);
-                  setScreen("waypoint");
-                }}
-              >
-                <Text style={styles.itemTitle}>{waypoint.title}</Text>
-                <Text style={styles.meta}>{waypoint.waypointType}</Text>
-                <Text style={styles.meta}>Score {waypoint.score.toFixed(1)}</Text>
-              </Pressable>
-            ))}
-            {!!(analysis.analysisJobId || savedAnalysisId) && <FieldRecordsScreen analysisJobId={analysis.analysisJobId || savedAnalysisId} waypoints={waypointCards.map(({ id, title }) => ({ id, title }))} />}
-            {!!(analysis.analysisJobId || savedAnalysisId) && <PdfReportPanel key={analysis.analysisJobId || savedAnalysisId} analysisJobId={analysis.analysisJobId || savedAnalysisId} />}
           </View>
         )}
 
@@ -599,6 +603,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "#7eb07d",
   },
+  selectedMapDot: {
+    width: 18,
+    height: 18,
+    borderWidth: 4,
+    borderColor: "#ffffff",
+    transform: [{ translateX: -4 }, { translateY: -4 }],
+  },
   metric: {
     color: "#f0f3ea",
   },
@@ -616,6 +627,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
+  reportPanel:{backgroundColor:"#0f140f",borderRadius:16,padding:14,gap:8,marginTop:12},
   purchaseQuote:{backgroundColor:"#24251a",borderColor:"#d0a65d",borderWidth:1,borderRadius:16,padding:14,gap:6},
   error: {
     color: "#d68375",

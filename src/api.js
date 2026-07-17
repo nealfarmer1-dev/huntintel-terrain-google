@@ -1,5 +1,6 @@
 import { accessToken, clearSession } from "./auth";
 import { queueOfflineOperation } from "./offline";
+import { requireAnalysisJobId } from "./analysis-results";
 
 const baseUrl = (process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
@@ -51,16 +52,15 @@ export function fetchAnalyses(page = 1, pageSize = 20) {
 
 export async function fetchAnalysis(analysisJobId) {
   const encodedId = encodeURIComponent(analysisJobId);
-  const base = await request(`/api/terrain/analyses/${encodedId}`);
-  const resolvedId = base.analysisJobId || analysisJobId;
-  const encodedResolvedId = encodeURIComponent(resolvedId);
+  const base = requireAnalysisJobId(await request(`/api/terrain/analyses/${encodedId}`), analysisJobId, "Analysis detail");
   const [features, relationships, waypoints, report] = await Promise.all([
-    request(`/api/terrain/analyses/${encodedResolvedId}/features`),
-    request(`/api/terrain/analyses/${encodedResolvedId}/relationships`),
-    request(`/api/terrain/analyses/${encodedResolvedId}/waypoints`),
-    request(`/api/terrain/analyses/${encodedResolvedId}/report`),
+    request(`/api/terrain/analyses/${encodedId}/features`),
+    request(`/api/terrain/analyses/${encodedId}/relationships`),
+    request(`/api/terrain/analyses/${encodedId}/waypoints`),
+    request(`/api/terrain/analyses/${encodedId}/report`),
   ]);
-  return { ...base, analysisJobId: resolvedId, features: features.features || [], relationships: relationships.relationships || [], waypoints: waypoints.waypoints || [], report: report.report || base.report || {} };
+  requireAnalysisJobId(features, analysisJobId, "Analysis features"); requireAnalysisJobId(relationships, analysisJobId, "Analysis relationships"); requireAnalysisJobId(waypoints, analysisJobId, "Analysis waypoints"); requireAnalysisJobId(report, analysisJobId, "Analysis report");
+  return { ...base, analysisJobId, features: features.features || [], relationships: relationships.relationships || [], waypoints: waypoints.waypoints || [], report: report.report || base.report || {} };
 }
 
 export const fetchAnalysisNotes = (id) => request(`/api/terrain/analyses/${encodeURIComponent(id)}/notes?page=1&pageSize=100`);

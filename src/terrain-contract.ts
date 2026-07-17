@@ -22,16 +22,21 @@ export interface TerrainAnalysisRequest {
   };
 }
 
+export type TerrainGeometry =
+  | { type: "Point"; coordinates: [number, number] }
+  | { type: "LineString"; coordinates: [number, number][] }
+  | { type: "Polygon"; coordinates: [number, number][][] }
+  | { type: "MultiPoint"; coordinates: [number, number][] }
+  | { type: "MultiLineString"; coordinates: [number, number][][] }
+  | { type: "MultiPolygon"; coordinates: [number, number][][][] };
+
 export interface TerrainFeature {
   id: string;
   featureType: string;
   score: number;
   confidence: number;
   explanation?: string;
-  geometry: {
-    type: "Point";
-    coordinates: [number, number];
-  };
+  geometry?: TerrainGeometry;
   properties: Record<string, unknown>;
 }
 
@@ -54,10 +59,7 @@ export interface TerrainWaypoint {
   title: string;
   score: number;
   confidence: number;
-  geometry: {
-    type: "Point";
-    coordinates: [number, number];
-  };
+  geometry?: TerrainGeometry;
   reason?: string;
   notes?: string[];
   properties?: Record<string, unknown>;
@@ -67,6 +69,7 @@ export interface TerrainReport {
   title: string;
   overview: string;
   keyFindings: string[];
+  huntingStrategy?: string | string[];
   topWaypoints: Array<Record<string, unknown>>;
   terrainDefinitions: Array<Record<string, unknown>>;
   scoutingNotes: string[];
@@ -87,6 +90,10 @@ export interface TerrainSummary {
 export interface TerrainAnalysisResponse {
   jobId: string;
   analysisJobId: string | null;
+  analysisName?: string;
+  createdAt?: string;
+  completedAt?: string | null;
+  requestPolygon?: TerrainAnalysisRequest["polygon"] | null;
   analysisMode?: TerrainAnalysisRequest["analysisMode"];
   species?: TerrainAnalysisRequest["species"];
   persisted: boolean;

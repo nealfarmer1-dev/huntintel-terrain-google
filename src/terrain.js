@@ -57,16 +57,18 @@ export function projectCoordinate(coordinate, bounds, width, height) {
 }
 
 export function getBounds(polygon, waypoints = [], features = []) {
-  const coordinates = [...polygon.coordinates[0]];
+  const coordinates = [];
+  const collect = (value) => {
+    if (!Array.isArray(value)) return;
+    if (typeof value[0] === "number" && typeof value[1] === "number" && Number.isFinite(value[0]) && Number.isFinite(value[1])) { coordinates.push(value); return; }
+    value.forEach(collect);
+  };
+  collect(polygon?.coordinates);
   for (const feature of features) {
-    if (feature.geometry?.coordinates) {
-      coordinates.push(feature.geometry.coordinates);
-    }
+    collect(feature.geometry?.coordinates);
   }
   for (const waypoint of waypoints) {
-    if (waypoint.geometry?.coordinates) {
-      coordinates.push(waypoint.geometry.coordinates);
-    }
+    collect(waypoint.geometry?.coordinates);
   }
 
   return {
