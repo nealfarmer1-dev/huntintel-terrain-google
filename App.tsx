@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import { WebView } from "react-native-webview";
@@ -29,6 +29,7 @@ import { PaymentGate } from "./src/PaymentGate";
 import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
+import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -65,7 +66,7 @@ function safeJson(value: unknown) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled }: any) {
+function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled, camera }: any) {
   const style = mapboxStyleFor(basemap);
   const center = polygon?.coordinates?.[0]?.[0] || [-87.0, 32.6];
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
@@ -84,7 +85,8 @@ const layerPreferences=${safeJson(layerPreferences || {analysis:{boundary:true,w
 const editable=${safeJson(editable)};
 const initialUserLocation=${safeJson(userLocation || null)};
 const initialUserLocationEnabled=${safeJson(Boolean(userLocationEnabled))};
-const map=new mapboxgl.Map({container:'map',style:style,center:centerSafe(),zoom:13,projection:'mercator'});
+const initialCamera=${safeJson(camera || null)};
+const map=new mapboxgl.Map({container:'map',style:style,center:initialCamera&&initialCamera.center||centerSafe(),zoom:initialCamera&&initialCamera.zoom||13,bearing:initialCamera&&initialCamera.bearing||0,pitch:initialCamera&&initialCamera.pitch||0,projection:'mercator'});
 map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}),'top-right');
 let terrainEnabled=false;
 function post(type,payload){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type,payload}));}
@@ -98,16 +100,16 @@ if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'Feature
 map.addSource('analysis-features',{type:'geojson',data:fc(features)});map.addLayer({id:'analysis-features-circle',type:'circle',source:'analysis-features',paint:{'circle-color':'#d0a65d','circle-radius':7,'circle-stroke-color':'#10140f','circle-stroke-width':2}});map.addSource('analysis-waypoints',{type:'geojson',data:fc(waypoints)});map.addLayer({id:'analysis-waypoints-circle',type:'circle',source:'analysis-waypoints',paint:{'circle-color':'#89b37f','circle-radius':7,'circle-stroke-color':'#e6c27a','circle-stroke-width':2}});
 if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
 [['analysis-polygon-fill','boundary'],['analysis-polygon-line','boundary'],['analysis-features-circle','features'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
-try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);features.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});waypoints.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});if(any)map.fitBounds(b,{padding:45,maxZoom:15,duration:0})}catch(e){}
+try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);features.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});waypoints.forEach(function(i){walk(i.geometry&&i.geometry.coordinates)});if(!initialCamera&&any)map.fitBounds(b,{padding:45,maxZoom:15,duration:0})}catch(e){}
 }
-map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
 })();</script></body></html>`;
 }
 
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("setup");
-  const [analysisName, setAnalysisName] = useState("Weekend Test Property");
+  const [analysisName, setAnalysisName] = useState("");
   const [analysisMode, setAnalysisMode] = useState<(typeof ANALYSIS_MODE_OPTIONS)[number]["value"]>("whitetail");
   const [savedAnalysisId, setSavedAnalysisId] = useState("");
   const [points, setPoints] = useState<MapPoint[]>(samplePoints());
@@ -130,15 +132,22 @@ export default function App() {
   const [layerPreferences, setLayerPreferences] = useState<any>(DEFAULT_LAYER_PREFERENCES);
   const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
   const [purchase,setPurchase]=useState<any>(null);
+  const [quotedSetupKey,setQuotedSetupKey]=useState<string|null>(null),[hadQuote,setHadQuote]=useState(false),[quoteLoading,setQuoteLoading]=useState(false);
+  const quoteRequest=useRef(false),mapCamera=useRef<any>(null);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
   const isValid = acreage >= MIN_ACRES && acreage <= MAX_ACRES;
+  const analysisNameError=analysisNameValidationMessage(analysisName);
+  const currentSetupKey=useMemo(()=>setupConfigurationKey({analysisName,analysisMode,propertyId:null,polygon}),[analysisName,analysisMode,polygon]);
+  const quoteCurrent=quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey});
+  const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid:Boolean(polygon&&isValid),quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
 
   useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
-  const invalidatePurchase=()=>setPurchase(null);
+  const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
+  const resetSetup=()=>{setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setError("");mapCamera.current=null;setScreen("setup");};
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
   if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
@@ -151,7 +160,7 @@ export default function App() {
   };
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
-    try { setError(""); setScreen("processing"); setSavedAnalysisId(analysisJobId); setAnalysis(await fetchAnalysis(analysisJobId)); setScreen("results"); }
+    try { setError(""); mapCamera.current=null; setScreen("processing"); setSavedAnalysisId(analysisJobId); setAnalysis(await fetchAnalysis(analysisJobId)); setScreen("results"); }
     catch (nextError) { const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached) { const immutable = cached.manifest.immutable; setAnalysis({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report }); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
 
@@ -167,6 +176,7 @@ export default function App() {
 
     try {
       setError("");
+      mapCamera.current=null;
       setScreen("processing");
       const nextAnalysis = await fetchAnalysis(savedAnalysisId.trim());
       setAnalysis(nextAnalysis);
@@ -178,6 +188,10 @@ export default function App() {
   };
 
   const requestQuote = async () => {
+    if (analysisNameError) {
+      setError(analysisNameError);
+      return;
+    }
     if (!polygon) {
       setError("Draw three or more points or use the sample polygon.");
       return;
@@ -188,10 +202,16 @@ export default function App() {
       return;
     }
 
+    if (quoteRequest.current) return;
+    quoteRequest.current = true;
+    setQuoteLoading(true);
     try {
       setError("");
+      const trimmedName = normalizedAnalysisName(analysisName);
+      const key = setupConfigurationKey({ analysisName: trimmedName, analysisMode, propertyId: null, polygon });
+      setAnalysisName(trimmedName);
       const nextPurchase = await createAnalysisDraft({...buildAnalysisRequestPayload({
-        analysisName,
+        analysisName: trimmedName,
         analysisMode,
         species: isWildlifeMode(analysisMode) ? analysisMode : null,
         saveResults: true,
@@ -199,13 +219,18 @@ export default function App() {
         polygon,
       }),idempotencyKey:Crypto.randomUUID()});
       setPurchase(nextPurchase);
+      setQuotedSetupKey(key);
+      setHadQuote(true);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to confirm server acreage and price.");
       setScreen("setup");
+    } finally {
+      quoteRequest.current = false;
+      setQuoteLoading(false);
     }
   };
 
-  const submit=()=>{if(!purchase){setError("Confirm the server acreage and one-time price before analyzing.");return;}setError("");setScreen("payment");};
+  const submit=()=>{if(analysisNameError){setError(analysisNameError);return;}if(!quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey})){setError("Setup changed or the quote expired. Confirm acreage and price again.");invalidatePurchase();return;}setError("");setScreen("payment");};
   const completePaidAnalysis=async(nextAnalysis:any)=>{setAnalysis(nextAnalysis);setSavedAnalysisId(nextAnalysis.analysisJobId||"");setScreen("results");};
 
   const addPoint = (event: { nativeEvent: { locationX: number; locationY: number } }) => {
@@ -232,6 +257,7 @@ export default function App() {
         setUserLocation(null);
         setUserLocationEnabled(false);
       }
+      if (message.type === "map-camera" && Array.isArray(message.payload?.center)) mapCamera.current = message.payload;
     } catch {
       // Ignore non-HuntIntel WebView messages.
     }
@@ -274,7 +300,7 @@ export default function App() {
           <WebView
             originWhitelist={["*"]}
             geolocationEnabled
-            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable: screen === "setup", userLocation, userLocationEnabled }) }}
+            source={{ html: buildMapHtml({ token: MAPBOX_ACCESS_TOKEN, polygon: nextPolygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable: screen === "setup", userLocation, userLocationEnabled, camera: mapCamera.current }) }}
             onMessage={handleMapMessage}
             style={styles.webView}
           />
@@ -315,14 +341,16 @@ export default function App() {
         <ActionButton label="Live SAR" onPress={() => setScreen("sar")} primary={screen === "sar"} />
         <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
-        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={() => setScreen("setup")} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
+        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={resetSetup} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
         {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
         {screen === "sar" && <SarScreen onClose={() => setScreen("setup")} />}
 
         {screen === "setup" && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Analysis Setup</Text>
-            <TextInput style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Property name" placeholderTextColor="#7f8d7a" />
+            <Text style={styles.meta}>Draw a real geospatial land area, submit a wildlife, SAR, or terrain assessment analysis, and review features, relationships, waypoints, and the deterministic HTIE report.</Text>
+            <TextInput style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Enter Analysis Name" placeholderTextColor="#7f8d7a" maxLength={120} />
+            {analysisNameError ? <Text style={styles.error}>{analysisNameError}</Text> : null}
             <Text style={styles.meta}>Analysis mode: {analysisModeLabel(analysisMode)}</Text>
             <View style={styles.row}>
               {ANALYSIS_MODE_OPTIONS.map((option) => (
@@ -341,9 +369,9 @@ export default function App() {
             {renderMapControls()}
             {renderMap()}
             <View style={styles.row}>
-              <ActionButton label="Confirm Acreage & Price" onPress={requestQuote} disabled={!polygon||!isValid} />
-              <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={!polygon || !isValid||!purchase?.quote} />
-              <ActionButton label="Sample Polygon" onPress={() => {invalidatePurchase();setPoints(samplePoints())}} />
+              <ActionButton label="Confirm Acreage & Price" onPress={requestQuote} disabled={!new Set(["ready_for_quote","quoted","quote_stale"]).has(setupPhase)} />
+              <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} />
+              <ActionButton label="Sample Polygon" onPress={() => {invalidatePurchase();mapCamera.current=null;setPoints(samplePoints())}} />
             </View>
             <View style={styles.row}>
               <ActionButton label="Clear" onPress={() => {invalidatePurchase();setPoints([])}} />
@@ -360,7 +388,7 @@ export default function App() {
           </View>
         )}
 
-        {screen==="payment"&&purchase&&<PaymentGate initial={purchase} onComplete={completePaidAnalysis} onBack={()=>setScreen("setup")}/>}
+        {screen==="payment"&&purchase&&<PaymentGate initial={purchase} onComplete={completePaidAnalysis} onBack={()=>setScreen("setup")} onQuoteInvalid={()=>{invalidatePurchase();setScreen("setup")}}/>}
 
         {screen === "processing" && (
           <View style={styles.card}>

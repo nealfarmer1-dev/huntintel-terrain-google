@@ -39,8 +39,8 @@ export function createAnalysis(input) {
     body: JSON.stringify(input),
   });
 }
-export const createAnalysisDraft=input=>request("/api/terrain/analysis-drafts",{method:"POST",body:JSON.stringify(input)});
-export const createPaymentAttempt=(id,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts`,{method:"POST",body:JSON.stringify(input)});
+export const createAnalysisDraft=input=>request("/api/terrain/analysis-drafts",{method:"POST",body:JSON.stringify({...input,platform:"android"})});
+export const createPaymentAttempt=(id,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts`,{method:"POST",body:JSON.stringify({...input,platform:"android"})});
 export const verifyPaymentAttempt=(id,attemptId,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts/${encodeURIComponent(attemptId)}/verify`,{method:"POST",body:JSON.stringify(input)});
 export const reconcileAnalysisPurchase=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/reconcile`,{method:"POST",body:"{}"});
 export const submitPaidAnalysis=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/analyze`,{method:"POST",body:"{}"});
