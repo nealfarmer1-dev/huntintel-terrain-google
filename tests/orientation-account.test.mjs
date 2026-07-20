@@ -16,6 +16,8 @@ test("first launch, skip, finish, replay, and persistence share one durable orie
   assert.equal(TERRAIN_ORIENTATION_KEY, "huntintel.terrain.orientation.completed.v1");
   assert.equal(TERRAIN_ORIENTATION_STEPS.length, 7);
   for (const title of ["Draw an Area", "Run Terrain Analysis", "Review Results", "Save and Download", "Take It Into the Field"]) assert.equal(TERRAIN_ORIENTATION_STEPS.some((step) => step.title === title), true);
+  assert.equal(TERRAIN_ORIENTATION_STEPS.some((step) => step.body.includes("supported mobile web browsers") && step.body.includes("native Apple and Google apps")), true);
+  assert.equal(TERRAIN_ORIENTATION_STEPS.some((step) => step.bullets.includes("My Location remains unavailable on Web")), false);
   assert.match(modal, />Skip</); assert.match(modal, /last \? "Finish" : "Next"/); assert.match(app, /beginOrientationReplay/);
 });
 
@@ -30,4 +32,3 @@ test("existing analysis, team, SAR, and account-security flows remain available"
   for (const label of ["My Analyses", "Teams", "Live SAR", "Change Password", "Delete Account"]) assert.match(app + account, new RegExp(label));
   assert.match(app, /loadLibrary\(1\)/); assert.match(account, /accountRequest\("\/change-password"/);
 });
-
