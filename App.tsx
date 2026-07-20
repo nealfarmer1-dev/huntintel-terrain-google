@@ -34,6 +34,8 @@ import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-con
 import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
 import { createResultsState, entityGeometry, navigationTarget, selectEntity, selectedEntity, stateForAnalysis } from "./src/analysis-results";
 import { requireOpenedAnalysis } from "./src/analysis-opening";
+import { OrientationModal } from "./src/OrientationModal";
+import { completeOrientation, orientationCompleted, replayOrientation } from "./src/orientation";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -131,6 +133,8 @@ export default function App() {
   const [userLocationEnabled, setUserLocationEnabled] = useState(false);
   const [account, setAccount] = useState<any>(undefined);
   const [showAccount, setShowAccount] = useState(false);
+  const [orientationReady, setOrientationReady] = useState(false);
+  const [orientationVisible, setOrientationVisible] = useState(false);
   const [library, setLibrary] = useState<any>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [offlinePackages, setOfflinePackages] = useState<any[]>([]);
@@ -154,14 +158,12 @@ export default function App() {
   const mapSource=useMemo(()=>mapHtml?{html:mapHtml}:null,[mapHtml]);
 
   useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
+  useEffect(() => { orientationCompleted(SecureStore).then((completed) => setOrientationVisible(!completed)).catch(() => setOrientationVisible(true)).finally(() => setOrientationReady(true)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
   useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
   const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
   const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setError("");mapCamera.current=null;setScreen("setup");};
-
-  if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
-  if (!account || showAccount) return <AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} />;
 
   const loadLibrary = async (page = 1) => {
     analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setScreen("library"); setLibraryLoading(true); setError("");
@@ -169,6 +171,16 @@ export default function App() {
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
   };
+
+  const finishOrientation = async (destination: "new" | "library" | null) => {
+    await completeOrientation(SecureStore); setOrientationVisible(false);
+    if (destination === "new") { setShowAccount(false); resetSetup(); }
+    if (destination === "library") { setShowAccount(false); await loadLibrary(1); }
+  };
+  const beginOrientationReplay = async () => { await replayOrientation(SecureStore); setOrientationVisible(true); };
+
+  if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
+  if (!account || showAccount) return <><AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.0" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
     const generation=++analysisLoadGeneration.current;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);
@@ -366,13 +378,10 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.eyebrow}>HuntIntel Terrain</Text>
-        <Text style={styles.title}>Android Emulator MVP</Text>
-        <Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text>
+        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text><Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" style={styles.gearButton} onPress={() => setShowAccount(true)}><Text style={styles.gearText}>⚙︎</Text></Pressable></View>
         <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
         <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
         <ActionButton label="Live SAR" onPress={() => setScreen("sar")} primary={screen === "sar"} />
-        <ActionButton label="Account & Security" onPress={() => setShowAccount(true)} />
 
         {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={resetSetup} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
         {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
@@ -483,6 +492,7 @@ export default function App() {
           </View>
         )}
       </ScrollView>
+      {orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}
     </SafeAreaView>
   );
 }
@@ -515,6 +525,10 @@ const styles = StyleSheet.create({
     gap: 16,
     backgroundColor: "#10140f",
   },
+  appHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerText: { flex: 1, gap: 4 },
+  gearButton: { width: 48, height: 48, borderRadius: 14, backgroundColor: "#1b2518", borderWidth: 1, borderColor: "#31412d", alignItems: "center", justifyContent: "center" },
+  gearText: { color: "#e7eee1", fontSize: 24 },
   eyebrow: {
     color: "#d0a65d",
     textTransform: "uppercase",
