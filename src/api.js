@@ -49,6 +49,8 @@ export const submitPaidAnalysis=id=>request(`/api/terrain/analysis-drafts/${enco
 export function fetchAnalyses(page = 1, pageSize = 20) {
   return request(`/api/terrain/analyses?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`);
 }
+export const deleteAnalysis = (id) => request(`/api/terrain/analyses/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const deleteAnalyses = (analysisJobIds) => request("/api/terrain/analyses", { method: "DELETE", body: JSON.stringify({ analysisJobIds }) });
 
 export async function fetchAnalysis(analysisJobId) {
   const encodedId = encodeURIComponent(analysisJobId);

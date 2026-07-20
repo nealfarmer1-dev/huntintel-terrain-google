@@ -4,6 +4,7 @@ import * as Crypto from "expo-crypto";
 import { WebView } from "react-native-webview";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -13,7 +14,7 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysisDraft, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchMapConfig, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { createAnalysisDraft, deleteAnalysis, deleteAnalyses, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchMapConfig, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import "./src/navigation-background";
@@ -36,6 +37,7 @@ import { createResultsState, entityGeometry, navigationTarget, selectEntity, sel
 import { requireOpenedAnalysis } from "./src/analysis-opening";
 import { OrientationModal } from "./src/OrientationModal";
 import { completeOrientation, orientationCompleted, replayOrientation } from "./src/orientation";
+import { removeDeletedAnalyses } from "./src/analysis-library";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -137,6 +139,7 @@ export default function App() {
   const [orientationVisible, setOrientationVisible] = useState(false);
   const [library, setLibrary] = useState<any>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryReturnScreen, setLibraryReturnScreen] = useState<Screen | null>(null);
   const [offlinePackages, setOfflinePackages] = useState<any[]>([]);
   const [offlineStatus, setOfflineStatus] = useState("");
   const [offlineManifest, setOfflineManifest] = useState<any>(null);
@@ -163,13 +166,25 @@ export default function App() {
   useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
   const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
-  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setError("");mapCamera.current=null;setScreen("setup");};
+  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setLibraryReturnScreen(null);setError("");mapCamera.current=null;setScreen("setup");};
 
   const loadLibrary = async (page = 1) => {
     analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setScreen("library"); setLibraryLoading(true); setError("");
     try { setLibrary(await fetchAnalyses(page, 12)); setOfflinePackages(await listOfflinePackages()); }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
+  };
+
+  const deleteLibraryItems = async (ids: string[]) => {
+    const confirmed = await new Promise<boolean>((resolve) => Alert.alert(ids.length === 1 ? "Delete saved analysis?" : `Delete ${ids.length} saved analyses?`, "This cannot be undone.", [{ text: "Cancel", style: "cancel", onPress: () => resolve(false) }, { text: "Delete", style: "destructive", onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));
+    if (!confirmed) return false;
+    try {
+      const result = ids.length === 1 ? await deleteAnalysis(ids[0]) : await deleteAnalyses(ids);
+      const updated = removeDeletedAnalyses(library, result.deletedIds || ids, result.ownedTotal); setLibrary(updated);
+      await Promise.all(ids.map((id) => removeOfflinePackage(id).catch(() => {}))); setOfflinePackages(await listOfflinePackages()); setOfflineStatus(`${result.deletedCount || ids.length} saved ${ids.length === 1 ? "analysis" : "analyses"} deleted.`);
+      if (!updated?.items.length && updated?.page > 1) await loadLibrary(updated.page - 1);
+      return true;
+    } catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to delete saved analyses."); return false; }
   };
 
   const finishOrientation = async (destination: "new" | "library" | null) => {
@@ -383,7 +398,7 @@ export default function App() {
         <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
         <ActionButton label="Live SAR" onPress={() => setScreen("sar")} primary={screen === "sar"} />
 
-        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={resetSetup} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
+        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={resetSetup} onDelete={deleteLibraryItems} onReturnCurrent={libraryReturnScreen ? () => { setScreen(libraryReturnScreen); setLibraryReturnScreen(null); } : undefined} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
         {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
         {screen === "sar" && <SarScreen onClose={() => setScreen("setup")} />}
 
@@ -430,7 +445,7 @@ export default function App() {
           </View>
         )}
 
-        {screen==="payment"&&purchase&&<PaymentGate initial={purchase} onComplete={completePaidAnalysis} onBack={()=>setScreen("setup")} onQuoteInvalid={()=>{invalidatePurchase();setScreen("setup")}}/>}
+        {screen==="payment"&&purchase&&<PaymentGate initial={purchase} onComplete={completePaidAnalysis} onBack={()=>setScreen("setup")} onQuoteInvalid={()=>{invalidatePurchase();setScreen("setup")}} onPurchaseChange={setPurchase} onLibraryLimit={()=>{setLibraryReturnScreen("payment");void loadLibrary(1)}}/>}
 
         {screen === "processing" && (
           <View style={styles.card}>
