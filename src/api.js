@@ -43,8 +43,10 @@ export function createAnalysis(input) {
 export const createAnalysisDraft=input=>request("/api/terrain/analysis-drafts",{method:"POST",body:JSON.stringify({...input,platform:"android"})});
 export const createPaymentAttempt=(id,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts`,{method:"POST",body:JSON.stringify({...input,platform:"android"})});
 export const verifyPaymentAttempt=(id,attemptId,input)=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/payment-attempts/${encodeURIComponent(attemptId)}/verify`,{method:"POST",body:JSON.stringify(input)});
+export const fetchAnalysisPurchase=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}`,{headers:{"X-Terrain-Platform":"android"}});
+export const fetchRecoverableAnalyses=()=>request("/api/terrain/analysis-drafts/recoverable",{headers:{"X-Terrain-Platform":"android"}});
 export const reconcileAnalysisPurchase=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/reconcile`,{method:"POST",body:"{}"});
-export const submitPaidAnalysis=id=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/analyze`,{method:"POST",body:"{}"});
+export const submitPaidAnalysis=(id,source="manual")=>request(`/api/terrain/analysis-drafts/${encodeURIComponent(id)}/analyze`,{method:"POST",body:JSON.stringify({source})});
 
 export function fetchAnalyses(page = 1, pageSize = 20) {
   return request(`/api/terrain/analyses?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`);

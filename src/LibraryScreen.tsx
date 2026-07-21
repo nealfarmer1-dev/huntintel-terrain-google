@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { pendingStatusLabel } from "./payment-recovery";
 
 type LibraryItem = {
   analysisJobId: string;
@@ -15,7 +16,7 @@ type LibraryItem = {
 };
 
 type Library = { items: LibraryItem[]; page: number; pageSize: number; total: number; ownedTotal: number; limit: number; totalPages: number };
-type Props = { library: Library | null; loading: boolean; error: string; offlinePackages?: any[]; offlineStatus?: string; downloadingId?: string; onPage: (page: number) => void; onOpen: (id: string) => void; onNew: () => void; onDelete: (ids: string[]) => Promise<boolean>; onReturnCurrent?: () => void; onDownload?: (id: string) => void; onCancel?: () => void; onSync?: (id: string) => void; onRemove?: (id: string) => void };
+type Props = { library: Library | null; pendingAnalyses?:any[]; loading: boolean; error: string; offlinePackages?: any[]; offlineStatus?: string; downloadingId?: string; onPage: (page: number) => void; onOpen: (id: string) => void; onResumePending?:(item:any)=>void; onNew: () => void; onDelete: (ids: string[]) => Promise<boolean>; onReturnCurrent?: () => void; onDownload?: (id: string) => void; onCancel?: () => void; onSync?: (id: string) => void; onRemove?: (id: string) => void };
 
 function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   const ring = polygon?.coordinates?.[0] || [];
@@ -29,7 +30,7 @@ function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   })}</View>;
 }
 
-export function LibraryScreen({ library, loading, error, offlinePackages = [], offlineStatus, downloadingId, onPage, onOpen, onNew, onDelete, onReturnCurrent, onDownload, onCancel, onSync, onRemove }: Props) {
+export function LibraryScreen({ library, pendingAnalyses=[], loading, error, offlinePackages = [], offlineStatus, downloadingId, onPage, onOpen, onResumePending, onNew, onDelete, onReturnCurrent, onDownload, onCancel, onSync, onRemove }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => { const available = new Set((library?.items || []).filter((item) => item.accessRole === "owner").map((item) => item.analysisJobId)); setSelected((current) => new Set([...current].filter((id) => available.has(id)))); }, [library?.page, library?.items]);
   const toggle = (id: string) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -39,6 +40,7 @@ export function LibraryScreen({ library, loading, error, offlinePackages = [], o
     <Text style={styles.meta}>Engine findings, geometries, reports, and waypoints are read-only.</Text>
     {!!error && <Text style={styles.error}>{error}</Text>}
     {!!offlineStatus && <Text style={styles.meta}>{offlineStatus}</Text>}
+    {!!pendingAnalyses.length&&<View style={styles.pending}><Text style={styles.itemTitle}>Pending Analyses</Text>{pendingAnalyses.map(item=><View key={item.draft.draftId} style={styles.pendingItem}><Text style={styles.itemTitle}>{item.draft.analysisName||"Terrain Analysis"}</Text><Text style={styles.meta}>{pendingStatusLabel(item)}</Text><Text style={styles.meta}>{Number(item.draft.acreage).toLocaleString()} acres · Payment confirmed</Text><Button label="Resume or retry analysis" primary onPress={()=>onResumePending?.(item)}/></View>)}</View>}
     {!loading && !!library?.items.length && <Button label={`Delete Selected (${selected.size})`} disabled={!selected.size} onPress={() => { void remove([...selected]); }} />}
     {loading ? <Text style={styles.meta}>Loading analyses…</Text> : !library?.items.length ? <Text style={styles.meta}>No saved analyses yet.</Text> : library.items.map((item) => <View key={item.analysisJobId} style={styles.analysisCard}>
       <BoundaryPreview polygon={item.mapPreview} />
@@ -58,6 +60,7 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#d0a65d", textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11 },
   title: { color: "#f0f3ea", fontWeight: "800", fontSize: 25 }, count: { color: "#d0a65d", fontWeight: "700", marginTop: 6 }, actions: { gap: 8, alignItems: "stretch" },
   analysisCard: { overflow: "hidden", borderRadius: 18, backgroundColor: "#0f140f", borderWidth: 1, borderColor: "#344333" },
+  pending:{gap:10,backgroundColor:"#24251a",borderColor:"#d0a65d",borderWidth:1,borderRadius:16,padding:14},pendingItem:{gap:6,borderTopColor:"#4a4933",borderTopWidth:1,paddingTop:10},
   preview: { height: 96, backgroundColor: "#263726", position: "relative", overflow: "hidden" },
   vertex: { position: "absolute", width: 8, height: 8, borderRadius: 8, backgroundColor: "#e6c27a", borderWidth: 1, borderColor: "#6e5124" },
   body: { padding: 14, gap: 8 }, itemTitle: { color: "#f0f3ea", fontWeight: "700", fontSize: 17, flex: 1 },

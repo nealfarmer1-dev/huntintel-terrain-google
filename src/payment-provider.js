@@ -1,5 +1,15 @@
 export const PAYMENT_PLATFORM = "android";
 export const PAYMENT_PROVIDER = "google_play";
+export const STORE_PRODUCT_IDS = Object.freeze({
+  standard_analysis: "com.huntintel.terrainintelligence.analysis.standard",
+  large_analysis: "com.huntintel.terrainintelligence.analysis.large",
+});
+
+export function productIdForPurchase(purchase = {}) {
+  const productId = STORE_PRODUCT_IDS[purchase?.draft?.tierKey];
+  if (!productId || (purchase?.quote?.providerProductId && purchase.quote.providerProductId !== productId)) throw new Error("The Google Play product does not match the server pricing tier.");
+  return productId;
+}
 
 function records(value) {
   if (Array.isArray(value)) return value;

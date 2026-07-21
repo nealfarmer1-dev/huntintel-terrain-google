@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "plugins": [
+      "react-native-iap",
       ["expo-image-picker", {
         "cameraPermission": "HuntIntel Terrain uses the camera only when you choose to capture a field photo or video.",
         "photosPermission": "HuntIntel Terrain accesses a selected field photo or video only when you choose it.",

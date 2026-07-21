@@ -23,6 +23,8 @@
     "expo-task-manager": "~13.1.6",
     "react": "19.0.0",
     "react-native": "0.79.5",
+    "react-native-iap": "^14.7.20",
+    "react-native-nitro-modules": "^0.35.10",
     "react-native-webview": "^13.15.0"
   },
   "devDependencies": {

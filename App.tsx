@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 
-import { createAnalysisDraft, deleteAnalysis, deleteAnalyses, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAttachments, fetchMapConfig, fetchOfflineManifest, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { createAnalysisDraft, deleteAnalysis, deleteAnalyses, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAnalysisPurchase, fetchAttachments, fetchMapConfig, fetchOfflineManifest, fetchRecoverableAnalyses, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import "./src/navigation-background";
@@ -38,6 +38,7 @@ import { requireOpenedAnalysis } from "./src/analysis-opening";
 import { OrientationModal } from "./src/OrientationModal";
 import { completeOrientation, orientationCompleted, replayOrientation } from "./src/orientation";
 import { removeDeletedAnalyses } from "./src/analysis-library";
+import { loadPaymentRecoveryHint } from "./src/payment-recovery";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -139,6 +140,8 @@ export default function App() {
   const [orientationVisible, setOrientationVisible] = useState(false);
   const [library, setLibrary] = useState<any>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [pendingAnalyses,setPendingAnalyses]=useState<any[]>([]);
+  const [paymentRecoveryReady,setPaymentRecoveryReady]=useState(false);
   const [libraryReturnScreen, setLibraryReturnScreen] = useState<Screen | null>(null);
   const [offlinePackages, setOfflinePackages] = useState<any[]>([]);
   const [offlineStatus, setOfflineStatus] = useState("");
@@ -161,6 +164,7 @@ export default function App() {
   const mapSource=useMemo(()=>mapHtml?{html:mapHtml}:null,[mapHtml]);
 
   useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
+  useEffect(()=>{if(!account){setPaymentRecoveryReady(false);return;}let active=true;(async()=>{try{const[hint,recoverable]=await Promise.all([loadPaymentRecoveryHint(SecureStore),fetchRecoverableAnalyses()]);if(!active)return;setPendingAnalyses(recoverable.items||[]);if(hint?.draftId){const restored=await fetchAnalysisPurchase(hint.draftId);if(active){setPurchase(restored);setScreen("payment");}}}catch{}finally{if(active)setPaymentRecoveryReady(true);}})();return()=>{active=false};},[account]);
   useEffect(() => { orientationCompleted(SecureStore).then((completed) => setOrientationVisible(!completed)).catch(() => setOrientationVisible(true)).finally(() => setOrientationReady(true)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
   useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
@@ -170,7 +174,7 @@ export default function App() {
 
   const loadLibrary = async (page = 1) => {
     analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setScreen("library"); setLibraryLoading(true); setError("");
-    try { setLibrary(await fetchAnalyses(page, 12)); setOfflinePackages(await listOfflinePackages()); }
+    try { const[nextLibrary,recoverable,nextOffline]=await Promise.all([fetchAnalyses(page,12),fetchRecoverableAnalyses(),listOfflinePackages()]);setLibrary(nextLibrary);setPendingAnalyses(recoverable.items||[]);setOfflinePackages(nextOffline); }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
   };
@@ -196,6 +200,7 @@ export default function App() {
 
   if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
   if (!account || showAccount) return <><AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.0" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
+  if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><View style={styles.openingAnalysis}><ActivityIndicator size="large" color="#d0a65d"/><Text style={styles.sectionTitle}>Restoring your analyses…</Text></View></SafeAreaView>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
     const generation=++analysisLoadGeneration.current;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);
@@ -276,6 +281,7 @@ export default function App() {
 
   const submit=()=>{if(analysisNameError){setError(analysisNameError);return;}if(!quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey})){setError("Setup changed or the quote expired. Confirm acreage and price again.");invalidatePurchase();return;}setError("");setScreen("payment");};
   const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;setInitialFitAnalysisId(null);setAnalysis(nextAnalysis);setSavedAnalysisId(nextAnalysis.analysisJobId||"");setResultsUi(createResultsState(nextAnalysis.analysisJobId||null));setNavigationTargetEntity(null);mapCamera.current=null;setScreen("results");};
+  const resumePendingAnalysis=(nextPurchase:any)=>{setPurchase(nextPurchase);setScreen("payment");};
 
   const addPoint = (event: { nativeEvent: { locationX: number; locationY: number } }) => {
     const longitude = -87.02 + (event.nativeEvent.locationX / MAP_WIDTH) * 0.36;
@@ -398,7 +404,7 @@ export default function App() {
         <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
         <ActionButton label="Live SAR" onPress={() => setScreen("sar")} primary={screen === "sar"} />
 
-        {screen === "library" && <LibraryScreen library={library} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onNew={resetSetup} onDelete={deleteLibraryItems} onReturnCurrent={libraryReturnScreen ? () => { setScreen(libraryReturnScreen); setLibraryReturnScreen(null); } : undefined} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
+        {screen === "library" && <LibraryScreen library={library} pendingAnalyses={pendingAnalyses} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onResumePending={resumePendingAnalysis} onNew={resetSetup} onDelete={deleteLibraryItems} onReturnCurrent={libraryReturnScreen ? () => { setScreen(libraryReturnScreen); setLibraryReturnScreen(null); } : undefined} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
         {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
         {screen === "sar" && <SarScreen onClose={() => setScreen("setup")} />}
 
