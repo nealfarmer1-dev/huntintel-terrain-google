@@ -3,6 +3,7 @@ import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput
 import { accountRequest, fetchAccount, fetchStorageQuota } from "./api";
 import { clearSession, storeSession } from "./auth";
 import { listOfflinePackages } from "./offline";
+import { PasswordField } from "./PasswordField";
 
 type Mode = "login" | "register" | "verify" | "forgot" | "reset" | "security";
 type Props = {
@@ -27,10 +28,10 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [agreementsAccepted, setAgreementsAccepted] = useState(false);
-  const [showPasswords, setShowPasswords] = useState(false);
   const [message, setMessage] = useState("");
   const [quota, setQuota] = useState<any>(null);
   const [downloadCount, setDownloadCount] = useState(0);
@@ -42,7 +43,15 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
 
   const submit = async () => {
     const paths: Record<string, string> = { login: "/login", register: "/register", verify: "/verify-email", forgot: "/forgot-password", reset: "/reset-password" };
-    const body = mode === "reset" ? { token, password: newPassword, confirm_password: newPassword } : mode === "verify" ? { token } : mode === "register" ? { email, password, first_name: firstName, last_name: lastName, terms_accepted: agreementsAccepted, privacy_accepted: agreementsAccepted, waiver_accepted: agreementsAccepted } : { email, password };
+    if (mode === "register" && password !== confirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+    if (mode === "reset" && newPassword !== confirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+    const body = mode === "reset" ? { token, password: newPassword, confirm_password: confirmPassword } : mode === "verify" ? { token } : mode === "register" ? { email, password, confirm_password: confirmPassword, first_name: firstName, last_name: lastName, terms_accepted: agreementsAccepted, privacy_accepted: agreementsAccepted, waiver_accepted: agreementsAccepted } : { email, password };
     try {
       setMessage("Working…");
       const result = await accountRequest(paths[mode], body);
@@ -69,10 +78,10 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
       <Section title="Subscription"><Text style={styles.meta}>Subscription management will be available here in a future release.</Text></Section>
       <Section title="About HuntIntel Terrain Intelligence"><Text style={styles.meta}>Deterministic terrain analysis powered by the HuntIntel Terrain Intelligence Engine (HTIE).</Text><Text style={styles.value}>App Version {appVersion}</Text></Section>
       <Section title="Account Security">
-        <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="Current password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} />
-        <TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} />
-        <Button label={showPasswords ? "Hide passwords" : "Show passwords"} onPress={() => setShowPasswords(!showPasswords)} />
-        <Button label="Change Password" primary onPress={async () => { try { await accountRequest("/change-password", { current_password: password, new_password: newPassword, confirm_password: newPassword }); setMessage("Password changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to change password."); } }} />
+        <PasswordField style={styles.input} value={password} onChangeText={setPassword} placeholder="Current password" placeholderTextColor="#82907e" textContentType="password" autoComplete="current-password" />
+        <PasswordField style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />
+        <PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />
+        <Button label="Change Password" primary onPress={async () => { if (newPassword !== confirmPassword) { setMessage("Passwords do not match."); return; } try { await accountRequest("/change-password", { current_password: password, new_password: newPassword, confirm_password: confirmPassword }); setMessage("Password changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to change password."); } }} />
         <Button label="Sign Out" onPress={signOut} /><Button label="Delete Account" danger onPress={removeAccount} />
         {!!message && <Text accessibilityLiveRegion="polite" style={styles.meta}>{message}</Text>}
       </Section>
@@ -82,11 +91,11 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.wrap}><View style={styles.card}>
     <Text style={styles.eyebrow}>HuntIntel Terrain</Text><Text style={styles.title}>{mode === "login" ? "Sign in" : mode === "register" ? "Create account" : mode === "verify" ? "Verify email" : mode === "forgot" ? "Forgot password" : "Reset password"}</Text>
     {["login", "register", "forgot"].includes(mode) && <TextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor="#82907e" autoCapitalize="none" keyboardType="email-address" autoComplete="email" />}
-    {["login", "register"].includes(mode) && <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} autoComplete={mode === "login" ? "current-password" : "new-password"} />}
+    {["login", "register"].includes(mode) && <PasswordField style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#82907e" textContentType={mode === "login" ? "password" : "newPassword"} autoComplete={mode === "login" ? "current-password" : "new-password"} />}
+    {mode === "register" && <PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />}
     {mode === "register" && <><TextInput style={styles.input} value={firstName} onChangeText={setFirstName} placeholder="First name" placeholderTextColor="#82907e" /><TextInput style={styles.input} value={lastName} onChangeText={setLastName} placeholder="Last name" placeholderTextColor="#82907e" /><Button label={agreementsAccepted ? "Agreements accepted ✓" : "Accept Terms, Privacy Policy & Waiver"} onPress={() => setAgreementsAccepted(!agreementsAccepted)} /></>}
     {["verify", "reset"].includes(mode) && <TextInput style={styles.input} value={token} onChangeText={setToken} placeholder="Email token" placeholderTextColor="#82907e" autoCapitalize="none" />}
-    {mode === "reset" && <TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" secureTextEntry={!showPasswords} />}
-    {["login", "register", "reset"].includes(mode) && <Button label={showPasswords ? "Hide password" : "Show password"} onPress={() => setShowPasswords(!showPasswords)} />}
+    {mode === "reset" && <><PasswordField style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" /><PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" /></>}
     <Button label="Continue" primary onPress={submit} />
     {mode === "login" && <><Button label="Create Account" onPress={() => setMode("register")} /><Button label="Forgot Password" onPress={() => setMode("forgot")} /></>}
     {mode === "verify" && <Button label="Resend Verification" onPress={async () => { try { await accountRequest("/resend-verification", { email }); setMessage("Verification email requested."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to resend."); } }} />}
