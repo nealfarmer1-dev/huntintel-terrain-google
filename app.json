@@ -18,7 +18,7 @@
       ["expo-location", { "locationWhenInUsePermission": "HuntIntel Terrain uses your location only when you activate navigation or opt in to live SAR sharing.", "isAndroidBackgroundLocationEnabled": true, "isAndroidForegroundServiceEnabled": true }]
     ],
     "android": {
-      "package": "com.huntintel.terrain.google",
+      "package": "com.huntintel.terrainintelligence",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",

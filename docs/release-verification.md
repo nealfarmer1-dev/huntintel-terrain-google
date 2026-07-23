@@ -4,7 +4,7 @@
 
 Before this change the app had no Google Play Billing dependency or billing permission. `PaymentGate` only created an API attempt and displayed a placeholder; it never queried ProductDetails, launched Play Billing, sent a token for verification, consumed a purchase, or recovered callbacks.
 
-The app now uses `react-native-iap` 14.7.20 with `io.github.hyochan.openiap:openiap-google:1.3.28`. Expo prebuild adds `com.android.vending.BILLING`. It queries both fixed one-time products, displays `Product.displayPrice`, binds SHA-256(`draftId`) as `obfuscatedAccountId`, sends the purchase token to the Terrain API, and calls consumable `finishTransaction` only after the API durably returns an active entitlement. Consumption also acknowledges the purchase. A secure local draft hint is only a pointer to authoritative API state. Active/consumed entitlements auto-submit or resume, and paid failures remain in Pending Analyses with a no-repurchase retry.
+The app uses the Expo 53 / React Native 0.79-compatible `react-native-iap` 14.0.1 with Google Play Billing 8.0.0 and its matched Nitro runtime. Expo prebuild adds `com.android.vending.BILLING`. It queries both fixed one-time products, displays `Product.displayPrice`, binds SHA-256(`draftId`) as `obfuscatedAccountId`, sends the purchase token to the Terrain API, and calls consumable `finishTransaction` only after the API durably returns an active entitlement. Consumption also acknowledges the purchase. A secure local draft hint is only a pointer to authoritative API state. Active/consumed entitlements auto-submit or resume, and paid failures remain in Pending Analyses with a no-repurchase retry.
 
 Products:
 

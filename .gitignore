@@ -4,3 +4,6 @@ dist/
 build-section-1-export/
 build-section-4-export/
 *.log
+android/keystore.properties
+*.jks
+*.keystore
