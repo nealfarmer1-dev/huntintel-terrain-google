@@ -2,7 +2,9 @@ import { accessToken, clearSession } from "./auth";
 import { queueOfflineOperation } from "./offline";
 import { requireAnalysisJobId } from "./analysis-results";
 
-const baseUrl = (process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
+const configuredBaseUrl = process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL;
+if (!configuredBaseUrl) throw new Error("EXPO_PUBLIC_TERRAIN_API_BASE_URL is required.");
+const baseUrl = configuredBaseUrl.replace(/\/+$/, "");
 
 export async function request(path, options = {}) {
   const token = await accessToken();
