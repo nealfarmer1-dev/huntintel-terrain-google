@@ -21,7 +21,7 @@ function quotaCopy(quota: any) {
   return `${(Number(quota.usedBytes || 0) / 1073741824).toFixed(2)} of ${(Number(quota.limitBytes || 0) / 1073741824).toFixed(2)} GiB used (${Number(quota.percentUsed || 0)}%).`;
 }
 
-export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onReplayOrientation, onOpenDownloads, onOpenAnalyses, appVersion = "0.1.0" }: Props) {
+export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onReplayOrientation, onOpenDownloads, onOpenAnalyses, appVersion = "0.1.1" }: Props) {
   const [mode, setMode] = useState<Mode>(user ? "security" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
