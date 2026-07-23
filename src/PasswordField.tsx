@@ -39,10 +39,11 @@ const styles = StyleSheet.create({
   toggle: {
     position: "absolute",
     right: 0,
-    top: 0,
-    bottom: 0,
+    top: "50%",
+    height: 48,
     width: 48,
     minHeight: 48,
+    transform: [{ translateY: -24 }],
     alignItems: "center",
     justifyContent: "center",
   },
