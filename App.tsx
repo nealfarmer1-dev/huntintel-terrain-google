@@ -128,7 +128,7 @@ map.on('error',function(event){post('map-error',{message:event&&event.error&&eve
 
 
 export default function App() {
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [screen, setScreen] = useState<Screen>("home");
   const [analysisName, setAnalysisName] = useState("");
   const [analysisMode, setAnalysisMode] = useState<(typeof ANALYSIS_MODE_OPTIONS)[number]["value"]>("whitetail");
@@ -500,27 +500,28 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container}>
-        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" style={styles.gearButton} onPress={() => setShowAccount(true)}><Text style={styles.gearText}>⚙︎</Text></Pressable></View>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.container, windowWidth >= 700 && styles.containerWide]}>
+        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" style={({ pressed }) => [styles.gearButton, pressed && styles.buttonPressed]} onPress={() => setShowAccount(true)}><Text style={styles.gearText}>⚙︎</Text></Pressable></View>
         {!!sessionMessage && <Text accessibilityLiveRegion="polite" style={styles.warningBanner}>{sessionMessage}</Text>}
         <View style={styles.navBar}>
-          <ActionButton label="Home" onPress={() => setScreen("home")} primary={screen === "home"} />
-          <ActionButton label="New" onPress={resetSetup} primary={screen === "setup"} />
-          <ActionButton label="Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
-          <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
+          <NavButton icon="home-outline" label="Home" onPress={() => setScreen("home")} selected={screen === "home"} />
+          <NavButton icon="add-circle-outline" label="New" onPress={resetSetup} selected={screen === "setup"} />
+          <NavButton icon="folder-open-outline" label="Analyses" onPress={() => loadLibrary(1)} selected={screen === "library"} />
+          <NavButton icon="people-outline" label="Teams" onPress={() => setScreen("teams")} selected={screen === "teams"} />
         </View>
 
         {screen === "home" && <View style={styles.dashboard}>
+          <View style={styles.heroIcon}><Ionicons name="map-outline" size={26} color="#d0a65d" /></View>
           <Text style={styles.eyebrow}>FIELD-READY TERRAIN INTELLIGENCE</Text>
           <Text style={styles.sectionTitle}>Plan your next analysis</Text>
           <Text style={styles.meta}>Draw an area, confirm acreage and price, and keep completed analyses ready for field use.</Text>
-          <ActionButton label="New Analysis" primary onPress={resetSetup} />
+          <View style={styles.heroAction}><ActionButton label="New Analysis" primary onPress={resetSetup} /></View>
           {!!homeError && <View style={styles.inlineError}><Text accessibilityRole="alert" style={styles.error}>{homeError}</Text><ActionButton label="Retry" onPress={() => { void loadHomeSummary(); }} /></View>}
           <View style={styles.dashboardGrid}>
-            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => loadLibrary(1)}><Text style={styles.itemTitle}>My Analyses</Text><Text style={styles.meta}>{homeSummary ? `${homeSummary.analyses} of ${homeSummary.limit} saved` : "Loading usage…"}</Text></Pressable>
-            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => setScreen("teams")}><Text style={styles.itemTitle}>Teams</Text><Text style={styles.meta}>Manage collaboration</Text></Pressable>
-            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => setScreen("sar")}><Text style={styles.itemTitle}>Live SAR</Text><Text style={styles.meta}>Authorized team coordination</Text></Pressable>
-            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => setShowAccount(true)}><Text style={styles.itemTitle}>Account</Text><Text style={styles.meta}>{homeSummary ? `${(Number(homeSummary.quota?.usedBytes || 0) / 1073741824).toFixed(2)} GiB storage used` : "Settings and storage"}</Text></Pressable>
+            <DashboardCard icon="folder-open-outline" title="My Analyses" detail={homeSummary ? `${homeSummary.analyses} of ${homeSummary.limit} saved` : "Loading usage…"} onPress={() => loadLibrary(1)} />
+            <DashboardCard icon="people-outline" title="Teams" detail="Manage collaboration" onPress={() => setScreen("teams")} />
+            <DashboardCard icon="radio-outline" title="Live SAR" detail="Authorized team coordination" onPress={() => setScreen("sar")} />
+            <DashboardCard icon="settings-outline" title="Account" detail={homeSummary ? `${(Number(homeSummary.quota?.usedBytes || 0) / 1073741824).toFixed(2)} GiB storage used` : "Settings and storage"} onPress={() => setShowAccount(true)} />
           </View>
         </View>}
 
@@ -532,7 +533,7 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>New Analysis</Text>
             <Text style={styles.meta}>Create terrain features, waypoints, relationships, and a deterministic HTIE report.</Text>
-            <Text style={styles.meta}>1 · Name and mode</Text>
+            <View style={styles.stepHeader}><Text style={styles.stepNumber}>1</Text><Text style={styles.stepTitle}>Name and mode</Text></View>
             <TextInput style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Enter Analysis Name" placeholderTextColor="#7f8d7a" maxLength={120} />
             {analysisNameError ? <Text style={styles.error}>{analysisNameError}</Text> : null}
             <Text style={styles.meta}>Analysis mode: {analysisModeLabel(analysisMode)}</Text>
@@ -546,13 +547,13 @@ export default function App() {
                 />
               ))}
             </View>
-            <Text style={styles.meta}>2 · Draw the analysis area</Text>
+            <View style={styles.stepHeader}><Text style={styles.stepNumber}>2</Text><Text style={styles.stepTitle}>Draw the analysis area</Text></View>
             {renderMap()}
             <View style={styles.mapActions}><ActionButton label="Layers" onPress={() => setLayerSheetVisible(true)} /><ActionButton label="Undo Point" disabled={!points.length} onPress={() => { invalidatePurchase(); setPoints((current) => current.slice(0, -1)); }} /><ActionButton label="Clear" disabled={!points.length} onPress={() => {invalidatePurchase();setPoints([])}} /></View>
             <Text style={[styles.meta, isValid ? styles.success : styles.error]}>{polygon ? `${acreage.toLocaleString()} acres selected` : "Tap the map to add at least three boundary points."}</Text>
-            <Text style={styles.meta}>3 · Review acreage and price</Text>
+            <View style={styles.stepHeader}><Text style={styles.stepNumber}>3</Text><Text style={styles.stepTitle}>Review acreage and price</Text></View>
             {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
-            <ActionButton label="Confirm Acreage & Price" onPress={requestQuote} disabled={!new Set(["ready_for_quote","quoted","quote_stale"]).has(setupPhase)} />
+            <ActionButton label="Confirm Acreage & Price" loading={quoteLoading} onPress={requestQuote} disabled={!new Set(["ready_for_quote","quoted","quote_stale"]).has(setupPhase)} />
             <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
@@ -631,24 +632,42 @@ function ActionButton({
   onPress,
   primary = false,
   disabled = false,
+  loading = false,
 }: {
   label: string;
   onPress: () => void;
   primary?: boolean;
   disabled?: boolean;
+  loading?: boolean;
 }) {
+  const inactive = disabled || loading;
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ disabled, selected: primary }} style={[styles.button, primary && styles.buttonPrimary, disabled && styles.buttonDisabled]} onPress={onPress} disabled={disabled}>
-      <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{label}</Text>
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled: inactive, selected: primary, busy: loading }} style={({ pressed }) => [styles.button, primary && styles.buttonPrimary, inactive && styles.buttonDisabled, pressed && styles.buttonPressed]} onPress={onPress} disabled={inactive}>
+      {loading && <ActivityIndicator size="small" color={primary ? "#1f180f" : "#f0f3ea"} />}
+      <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{loading ? "Working…" : label}</Text>
     </Pressable>
   );
+}
+
+function NavButton({ icon, label, onPress, selected }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void; selected: boolean }) {
+  return <Pressable accessibilityRole="tab" accessibilityState={{ selected }} accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [styles.navItem, selected && styles.navItemSelected, pressed && styles.buttonPressed]}>
+    <Ionicons name={icon} size={21} color={selected ? "#19140d" : "#b9c4b4"} /><Text style={[styles.navLabel, selected && styles.navLabelSelected]}>{label}</Text>
+  </Pressable>;
+}
+
+function DashboardCard({ icon, title, detail, onPress }: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; detail: string; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${detail}`} style={({ pressed }) => [styles.dashboardCard, pressed && styles.cardPressed]} onPress={onPress}>
+    <View style={styles.dashboardIcon}><Ionicons name={icon} size={22} color="#d0a65d" /></View><View style={styles.dashboardCopy}><Text style={styles.itemTitle}>{title}</Text><Text style={styles.meta}>{detail}</Text></View><Ionicons name="chevron-forward" size={20} color="#748171" />
+  </Pressable>;
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#10140f",
+    width: "100%",
   },
+  containerWide: { maxWidth: 980, alignSelf: "center", paddingHorizontal: 28 },
   keyboard: { flex: 1 },
   container: {
     padding: 16,
@@ -680,10 +699,19 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 12,
   },
-  navBar: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 2 },
-  dashboard: { backgroundColor: "#182019", borderRadius: 22, padding: 18, gap: 14 },
+  navBar: { flexDirection: "row", gap: 6, padding: 5, borderRadius: 18, backgroundColor: "#151d16", borderWidth: 1, borderColor: "#2d3b2d" },
+  navItem: { flex: 1, minWidth: 58, minHeight: 54, borderRadius: Platform.OS === "ios" ? 14 : 12, alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 4 },
+  navItemSelected: { backgroundColor: "#d0a65d" },
+  navLabel: { color: "#b9c4b4", fontSize: 11, fontWeight: "800" },
+  navLabelSelected: { color: "#19140d" },
+  dashboard: { backgroundColor: "#182019", borderRadius: Platform.OS === "ios" ? 24 : 20, padding: 20, gap: 14, borderWidth: 1, borderColor: "#31412d", ...Platform.select({ ios: { shadowColor: "#000", shadowOpacity: .22, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } }, android: { elevation: 3 } }) },
+  heroIcon: { width: 52, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#27271c", borderWidth: 1, borderColor: "#4a4933" },
+  heroAction: { alignSelf: "stretch" },
   dashboardGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  dashboardCard: { flexGrow: 1, flexBasis: 145, minHeight: 104, justifyContent: "space-between", padding: 14, borderRadius: 16, backgroundColor: "#0f140f", borderWidth: 1, borderColor: "#31412d" },
+  dashboardCard: { flexGrow: 1, flexBasis: 260, minHeight: 88, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 16, backgroundColor: "#0f140f", borderWidth: 1, borderColor: "#31412d" },
+  dashboardIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#24251a" },
+  dashboardCopy: { flex: 1, gap: 3 },
+  cardPressed: { opacity: .78, transform: [{ scale: .99 }] },
   warningBanner: { color: "#f0d293", backgroundColor: "#332a1d", borderRadius: 12, padding: 12, lineHeight: 20 },
   openingAnalysis: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 24 },
   sectionTitle: {
@@ -703,6 +731,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: "#344333",
   },
   row: {
     flexDirection: "row",
@@ -719,9 +750,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     flexShrink: 1,
+    flexDirection: "row",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#3b4b3a",
   },
   buttonPrimary: {
     backgroundColor: "#d0a65d",
+    borderColor: "#e5c682",
   },
   buttonDisabled: {
     opacity: 0.45,
@@ -733,6 +769,10 @@ const styles = StyleSheet.create({
   buttonPrimaryText: {
     color: "#1f180f",
   },
+  buttonPressed: { opacity: .76, transform: [{ scale: .985 }] },
+  stepHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
+  stepNumber: { width: 28, height: 28, borderRadius: 14, textAlign: "center", textAlignVertical: "center", lineHeight: 28, color: "#19140d", backgroundColor: "#d0a65d", fontWeight: "900" },
+  stepTitle: { color: "#f0f3ea", fontSize: 17, fontWeight: "800" },
   mapWeb: {
     height: MAP_HEIGHT,
     borderRadius: 18,

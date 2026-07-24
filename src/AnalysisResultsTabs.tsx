@@ -9,7 +9,7 @@ import { entityGeometry, featureGroup, groupTerrainFeatures, navigationTarget, r
 const TABS = [["waypoints", "Waypoints"], ["features", "Terrain Features"], ["navigation", "Field Navigation"], ["records", "Notes & Attachments"]];
 
 function Button({ label, onPress, selected = false, disabled = false, role = "button" }: any) {
-  return <Pressable accessibilityRole={role} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={[s.button, selected && s.selectedButton, disabled && s.disabled]}><Text style={s.buttonText}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole={role} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.button, selected && s.selectedButton, disabled && s.disabled, pressed && s.pressed]}><Text style={[s.buttonText, selected && s.selectedButtonText]}>{label}</Text></Pressable>;
 }
 
 function Detail({ entity, type, analysis, onSelect, onNavigate }: any) {
@@ -66,11 +66,13 @@ const s = StyleSheet.create({
   panel: { gap: 10 },
   hidden: { display: "none" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
-  button: { backgroundColor: "#283329", borderWidth: 1, borderColor: "#3d4b3b", paddingHorizontal: 13, paddingVertical: 10, borderRadius: 999 },
+  button: { minHeight: 48, justifyContent: "center", backgroundColor: "#283329", borderWidth: 1, borderColor: "#3d4b3b", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
   selectedButton: { backgroundColor: "#d0a65d", borderColor: "#fff2a8" },
+  selectedButtonText: { color: "#19140d" },
   disabled: { opacity: .45 },
+  pressed: { opacity: .76, transform: [{ scale: .985 }] },
   buttonText: { color: "#f0f3ea", fontWeight: "700" },
-  resultRow: { flexDirection: "row", gap: 10, alignItems: "center", padding: 12, borderRadius: 14, borderWidth: 1, borderColor: "#344333", backgroundColor: "#111812" },
+  resultRow: { minHeight: 56, flexDirection: "row", gap: 10, alignItems: "center", padding: 12, borderRadius: 14, borderWidth: 1, borderColor: "#344333", backgroundColor: "#111812" },
   selectedRow: { borderWidth: 3, borderColor: "#fff2a8" },
   flex: { flex: 1, gap: 3 },
   resultTitle: { color: "#f0f3ea", fontWeight: "800" },
@@ -81,5 +83,5 @@ const s = StyleSheet.create({
   eyebrow: { color: "#d0a65d", fontSize: 11, letterSpacing: 1.4 },
   title: { color: "#f0f3ea", fontWeight: "800", fontSize: 19 },
   group: { borderWidth: 1, borderColor: "#344333", borderRadius: 14, overflow: "hidden", gap: 7 },
-  groupHeader: { flexDirection: "row", justifyContent: "space-between", padding: 13, backgroundColor: "#202b21" },
+  groupHeader: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 13, backgroundColor: "#202b21" },
 });

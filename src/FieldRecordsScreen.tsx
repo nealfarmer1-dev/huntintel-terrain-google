@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -170,6 +170,7 @@ export function FieldRecordsScreen({ analysisJobId, waypoints }: Props) {
     <Text style={styles.eyebrow}>User Field Records</Text>
     <Text style={styles.title}>Notes, Visits & Attachments</Text>
     <Text style={styles.meta}>Personal records are separate from immutable HTIE Engine Findings. Access role: {accessRole}.</Text>
+    {busy && <View accessibilityRole="progressbar" style={styles.busy}><ActivityIndicator size="small" color="#d0a65d" /><Text style={styles.meta}>Updating field records…</Text></View>}
     <Text style={[styles.quota, ["warning", "critical", "full"].includes(quota?.warningLevel) && styles.warning]}>{quotaCopy(quota)}</Text>
     {!canEdit && <Text style={styles.warning}>This role has read-only access and cannot modify field data.</Text>}
     {!!error && <Text style={styles.error}>{error}</Text>}
@@ -210,7 +211,7 @@ export function FieldRecordsScreen({ analysisJobId, waypoints }: Props) {
 }
 
 function Button({ label, onPress, primary = false, disabled = false }: any) {
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.button, primary && styles.primary, disabled && styles.disabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled, selected: primary }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, primary && styles.primary, disabled && styles.disabled, pressed && styles.pressed]}><Text style={[styles.buttonText, primary && styles.primaryText]}>{label}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -222,13 +223,16 @@ const styles = StyleSheet.create({
   quota: { color: "#8ab182", padding: 10, backgroundColor: "#0f140f", borderRadius: 12 },
   warning: { color: "#e3bd68" },
   error: { color: "#d68375" },
-  input: { backgroundColor: "#0f140f", color: "#f0f3ea", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  input: { minHeight: 48, backgroundColor: "#0f140f", color: "#f0f3ea", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: "#344333" },
   multiline: { minHeight: 76, textAlignVertical: "top" },
-  record: { backgroundColor: "#0f140f", borderRadius: 16, padding: 12, gap: 8 },
+  record: { backgroundColor: "#0f140f", borderRadius: 16, padding: 14, gap: 10, borderWidth: 1, borderColor: "#2f3d2f" },
   recordTitle: { color: "#f0f3ea", fontWeight: "700", textTransform: "capitalize" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  button: { backgroundColor: "#283329", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
-  primary: { backgroundColor: "#9b7740" },
+  button: { minHeight: 48, justifyContent: "center", backgroundColor: "#283329", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: "#3b4b3a" },
+  primary: { backgroundColor: "#d0a65d", borderColor: "#e5c682" },
   disabled: { opacity: 0.4 },
-  buttonText: { color: "#f5f2e9", fontWeight: "700" },
+  pressed: { opacity: .76, transform: [{ scale: .985 }] },
+  buttonText: { color: "#f5f2e9", fontWeight: "700", textAlign: "center" },
+  primaryText: { color: "#19140d" },
+  busy: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 12, backgroundColor: "#24251a" },
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { pendingStatusLabel } from "./payment-recovery";
+import { EmptyState } from "./NativeUi";
 
 type LibraryItem = {
   analysisJobId: string;
@@ -42,7 +43,7 @@ export function LibraryScreen({ library, pendingAnalyses=[], loading, error, off
     {!!offlineStatus && <Text style={styles.meta}>{offlineStatus}</Text>}
     {!!pendingAnalyses.length&&<View style={styles.pending}><Text style={styles.itemTitle}>Pending Analyses</Text>{pendingAnalyses.map(item=><View key={item.draft.draftId} style={styles.pendingItem}><Text style={styles.itemTitle}>{item.draft.analysisName||"Terrain Analysis"}</Text><Text style={styles.meta}>{pendingStatusLabel(item)}</Text><Text style={styles.meta}>{Number(item.draft.acreage).toLocaleString()} acres · Payment confirmed</Text><Button label="Resume or retry analysis" primary onPress={()=>onResumePending?.(item)}/></View>)}</View>}
     {!loading && !!library?.items.length && <Button label={`Delete Selected (${selected.size})`} disabled={!selected.size} onPress={() => { void remove([...selected]); }} />}
-    {loading ? <Text style={styles.meta}>Loading analyses…</Text> : !library?.items.length ? <Text style={styles.meta}>No saved analyses yet.</Text> : library.items.map((item) => <View key={item.analysisJobId} style={styles.analysisCard}>
+    {loading ? <View accessibilityRole="progressbar" style={styles.loading}><ActivityIndicator color="#d0a65d" /><Text style={styles.meta}>Loading analyses…</Text></View> : !library?.items.length ? <EmptyState title="No analyses yet" message="Create your first terrain analysis to keep maps, findings, reports, and waypoints ready for the field." actionLabel="Create Analysis" onAction={onNew} /> : library.items.map((item) => <View key={item.analysisJobId} style={styles.analysisCard}>
       <BoundaryPreview polygon={item.mapPreview} />
       <View style={styles.body}><View style={styles.heading}><Text style={styles.itemTitle}>{item.name}</Text><Text style={styles.badge}>{item.accessRole}</Text></View>
       <Text style={styles.meta}>{item.analysisMode.split("_").join(" ")} · {item.acreage == null ? "Acreage unavailable" : `${item.acreage.toLocaleString()} acres`}</Text>
@@ -53,9 +54,9 @@ export function LibraryScreen({ library, pendingAnalyses=[], loading, error, off
     {!!library && library.totalPages > 1 && <View style={styles.pager}><Button label="Previous" disabled={library.page <= 1} onPress={() => onPage(library.page - 1)} /><Text style={styles.meta}>Page {library.page} of {library.totalPages}</Text><Button label="Next" disabled={library.page >= library.totalPages} onPress={() => onPage(library.page + 1)} /></View>}
   </View>;
 }
-function Button({ label, onPress, primary, disabled }: any) { return <Pressable accessibilityRole="button" accessibilityState={{disabled:Boolean(disabled)}} disabled={disabled} onPress={onPress} style={[styles.button, primary && styles.primary, disabled && styles.disabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>; }
+function Button({ label, onPress, primary, disabled }: any) { return <Pressable accessibilityRole="button" accessibilityState={{disabled:Boolean(disabled)}} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, primary && styles.primary, disabled && styles.disabled, pressed && styles.pressed]}><Text style={[styles.buttonText, primary && styles.primaryText]}>{label}</Text></Pressable>; }
 const styles = StyleSheet.create({
-  card: { backgroundColor: "#182019", borderRadius: 24, padding: 18, gap: 14 },
+  card: { backgroundColor: "#182019", borderRadius: 24, padding: 18, gap: 14, borderWidth: 1, borderColor: "#31412d", width: "100%", maxWidth: 900, alignSelf: "center" },
   heading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   eyebrow: { color: "#d0a65d", textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11 },
   title: { color: "#f0f3ea", fontWeight: "800", fontSize: 25 }, count: { color: "#d0a65d", fontWeight: "700", marginTop: 6 }, actions: { gap: 8, alignItems: "stretch" },
@@ -65,6 +66,7 @@ const styles = StyleSheet.create({
   vertex: { position: "absolute", width: 8, height: 8, borderRadius: 8, backgroundColor: "#e6c27a", borderWidth: 1, borderColor: "#6e5124" },
   body: { padding: 14, gap: 8 }, itemTitle: { color: "#f0f3ea", fontWeight: "700", fontSize: 17, flex: 1 },
   badge: { color: "#8ab182", textTransform: "capitalize", fontSize: 12 }, meta: { color: "#9cab97" }, finding: { color: "#e3e8dd" }, error: { color: "#d68375" },
-  button: { backgroundColor: "#283329", borderRadius: 12, minHeight: 48, justifyContent: "center", paddingHorizontal: 14, paddingVertical: 10 }, primary: { backgroundColor: "#d0a65d" }, disabled: { opacity: .4 }, buttonText: { color: "#f5f2e9", fontWeight: "700" },
+  button: { backgroundColor: "#283329", borderRadius: 12, minHeight: 48, justifyContent: "center", paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: "#3b4b3a" }, primary: { backgroundColor: "#d0a65d", borderColor: "#e5c682" }, disabled: { opacity: .4 }, pressed: { opacity: .76, transform: [{ scale: .985 }] }, buttonText: { color: "#f5f2e9", fontWeight: "700", textAlign: "center" }, primaryText: { color: "#19140d" },
+  loading: { minHeight: 160, alignItems: "center", justifyContent: "center", gap: 12 },
   pager: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
 });
