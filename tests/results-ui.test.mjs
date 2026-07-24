@@ -27,14 +27,14 @@ test("native Mapbox bridge supports point line polygon selection and reverse ID 
   assert.match(app, /result-select/);
   assert.match(app, /entityType:'terrainFeature'/);
   assert.match(app, /entityType:'waypoint'/);
-  assert.match(app, /resultsMapRef\.current\?\.injectJavaScript/);
+  assert.match(app, /mapWebRef\.current\?\.injectJavaScript/);
 });
 
 test("native tab and selection state are excluded from memoized map HTML dependencies", () => {
   const memo = app.match(/const mapHtml=useMemo\([\s\S]+?\);\n  const mapSource/)?.[0] || "";
   assert.ok(memo);
   assert.doesNotMatch(memo, /resultsUi/);
-  assert.match(app, /source=\{mapSource!\}/);
+  assert.match(app, /const source = offlineManifest[\s\S]*source=\{source\}/);
 });
 
 test("native report PDF field records and exact analysis identifiers remain wired without Analysis Tour", () => {

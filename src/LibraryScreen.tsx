@@ -38,7 +38,7 @@ export function LibraryScreen({ library, pendingAnalyses=[], loading, error, off
   return <View style={styles.card}>
     <View style={styles.heading}><View><Text style={styles.eyebrow}>Saved terrain intelligence</Text><Text style={styles.title}>My Analyses</Text><Text style={styles.count}>Saved Analyses: {library?.ownedTotal || 0} / {library?.limit || 150}</Text></View><View style={styles.actions}>{onReturnCurrent && <Button label="Return to Current Analysis" onPress={onReturnCurrent} />}<Button label="New Analysis" onPress={onNew} /></View></View>
     <Text style={styles.meta}>Engine findings, geometries, reports, and waypoints are read-only.</Text>
-    {!!error && <Text style={styles.error}>{error}</Text>}
+    {!!error && <><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Retry" onPress={() => onPage(library?.page || 1)} /></>}
     {!!offlineStatus && <Text style={styles.meta}>{offlineStatus}</Text>}
     {!!pendingAnalyses.length&&<View style={styles.pending}><Text style={styles.itemTitle}>Pending Analyses</Text>{pendingAnalyses.map(item=><View key={item.draft.draftId} style={styles.pendingItem}><Text style={styles.itemTitle}>{item.draft.analysisName||"Terrain Analysis"}</Text><Text style={styles.meta}>{pendingStatusLabel(item)}</Text><Text style={styles.meta}>{Number(item.draft.acreage).toLocaleString()} acres · Payment confirmed</Text><Button label="Resume or retry analysis" primary onPress={()=>onResumePending?.(item)}/></View>)}</View>}
     {!loading && !!library?.items.length && <Button label={`Delete Selected (${selected.size})`} disabled={!selected.size} onPress={() => { void remove([...selected]); }} />}
@@ -53,10 +53,10 @@ export function LibraryScreen({ library, pendingAnalyses=[], loading, error, off
     {!!library && library.totalPages > 1 && <View style={styles.pager}><Button label="Previous" disabled={library.page <= 1} onPress={() => onPage(library.page - 1)} /><Text style={styles.meta}>Page {library.page} of {library.totalPages}</Text><Button label="Next" disabled={library.page >= library.totalPages} onPress={() => onPage(library.page + 1)} /></View>}
   </View>;
 }
-function Button({ label, onPress, primary, disabled }: any) { return <Pressable disabled={disabled} onPress={onPress} style={[styles.button, primary && styles.primary, disabled && styles.disabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>; }
+function Button({ label, onPress, primary, disabled }: any) { return <Pressable accessibilityRole="button" accessibilityState={{disabled:Boolean(disabled)}} disabled={disabled} onPress={onPress} style={[styles.button, primary && styles.primary, disabled && styles.disabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>; }
 const styles = StyleSheet.create({
   card: { backgroundColor: "#182019", borderRadius: 24, padding: 18, gap: 14 },
-  heading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
+  heading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   eyebrow: { color: "#d0a65d", textTransform: "uppercase", letterSpacing: 1.5, fontSize: 11 },
   title: { color: "#f0f3ea", fontWeight: "800", fontSize: 25 }, count: { color: "#d0a65d", fontWeight: "700", marginTop: 6 }, actions: { gap: 8, alignItems: "stretch" },
   analysisCard: { overflow: "hidden", borderRadius: 18, backgroundColor: "#0f140f", borderWidth: 1, borderColor: "#344333" },
@@ -65,6 +65,6 @@ const styles = StyleSheet.create({
   vertex: { position: "absolute", width: 8, height: 8, borderRadius: 8, backgroundColor: "#e6c27a", borderWidth: 1, borderColor: "#6e5124" },
   body: { padding: 14, gap: 8 }, itemTitle: { color: "#f0f3ea", fontWeight: "700", fontSize: 17, flex: 1 },
   badge: { color: "#8ab182", textTransform: "capitalize", fontSize: 12 }, meta: { color: "#9cab97" }, finding: { color: "#e3e8dd" }, error: { color: "#d68375" },
-  button: { backgroundColor: "#283329", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10 }, primary: { backgroundColor: "#d0a65d" }, disabled: { opacity: .4 }, buttonText: { color: "#f5f2e9", fontWeight: "700" },
+  button: { backgroundColor: "#283329", borderRadius: 12, minHeight: 48, justifyContent: "center", paddingHorizontal: 14, paddingVertical: 10 }, primary: { backgroundColor: "#d0a65d" }, disabled: { opacity: .4 }, buttonText: { color: "#f5f2e9", fontWeight: "700" },
   pager: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
 });

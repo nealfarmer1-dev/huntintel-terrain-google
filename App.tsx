@@ -1,35 +1,41 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
+import * as Location from "expo-location";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { WebView } from "react-native-webview";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  BackHandler,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 
-import { createAnalysisDraft, deleteAnalysis, deleteAnalyses, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAnalysisPurchase, fetchAttachments, fetchMapConfig, fetchOfflineManifest, fetchRecoverableAnalyses, pullOfflineSync, pushOfflineSync, terrainApiBaseUrl } from "./src/api";
+import { createAnalysisDraft, deleteAnalysis, deleteAnalyses, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAnalysisPurchase, fetchAttachments, fetchMapConfig, fetchOfflineManifest, fetchRecoverableAnalyses, fetchStorageQuota, pullOfflineSync, pushOfflineSync, setSessionExpiredHandler, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import "./src/navigation-background";
 import { stopSarBackground } from "./src/sar-background";
-import { NavigationPanel } from "./src/NavigationPanel";
 import { DEFAULT_LAYER_PREFERENCES, normalizeLayerPreferences, toggleLayer } from "./src/map-layers";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
-import { FieldRecordsScreen } from "./src/FieldRecordsScreen";
 import { TeamsScreen } from "./src/TeamsScreen";
 import { SarScreen } from "./src/SarScreen";
 import { PdfReportPanel } from "./src/PdfReportPanel";
 import { AnalysisResultsTabs } from "./src/AnalysisResultsTabs";
 import { PaymentGate } from "./src/PaymentGate";
-import { buildPolygonFromPoints, calculateApproximateAcreage, getBounds, projectCoordinate, samplePoints } from "./src/terrain";
+import { buildPolygonFromPoints, calculateApproximateAcreage } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
 import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
@@ -39,10 +45,12 @@ import { OrientationModal } from "./src/OrientationModal";
 import { completeOrientation, orientationCompleted, replayOrientation } from "./src/orientation";
 import { removeDeletedAnalyses } from "./src/analysis-library";
 import { loadPaymentRecoveryHint } from "./src/payment-recovery";
+import { restoreSession } from "./src/auth";
+import { AppLoadingScreen, ErrorState, LayerSheet } from "./src/NativeUi";
+import { LOCATION_PERMISSION_MESSAGE, LOCATION_UNAVAILABLE_MESSAGE, acquireCenterLocation, centerLocationJavaScript } from "./src/location-control";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
-const MAP_WIDTH = 320;
 const MAP_HEIGHT = 260;
 const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken((globalThis as any).process?.env || {});
 const HAS_MAPBOX_ACCESS_TOKEN = MAPBOX_ACCESS_TOKEN.length > 0;
@@ -56,7 +64,7 @@ const ANALYSIS_MODE_OPTIONS = [
   { value: "military_terrain", label: "Terrain Assessment" },
 ] as const;
 
-type Screen = "setup" | "payment" | "processing" | "opening" | "results" | "report" | "waypoint" | "library" | "teams" | "sar";
+type Screen = "home" | "setup" | "payment" | "processing" | "opening" | "results" | "report" | "waypoint" | "library" | "teams" | "sar";
 type MapPoint = { longitude: number; latitude: number };
 
 function sortWaypoints(waypoints: TerrainWaypoint[]) {
@@ -81,8 +89,9 @@ function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOve
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
-<style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button><button class="view-btn" id="locate-me">LOC</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
+<style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js"></script><script>(function(){
+window.onerror=function(message){post('map-error',{message:String(message||'Map failed to load.')})};
 mapboxgl.accessToken=${safeJson(token)};
 const polygon=${safeJson(polygon)};
 const features=${safeJson(features || [])};
@@ -103,7 +112,7 @@ function post(type,payload){if(window.ReactNativeWebView)window.ReactNativeWebVi
 function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinates[0]&&polygon.coordinates[0][0]||${safeJson(center)}}catch(e){return ${safeJson(center)}}}
 function ensureDem(){if(map.getSource('mapbox-dem'))return true;try{map.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1',tileSize:512,maxzoom:14});return true}catch(e){return false}}
 function set3d(next){terrainEnabled=!!next;if(terrainEnabled&&ensureDem()){map.setTerrain({source:'mapbox-dem',exaggeration:1.45});map.easeTo({pitch:60,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.add('active');return}try{map.setTerrain(null)}catch(e){}map.easeTo({pitch:0,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.remove('active')}
-let locationWatchId=null;const locateButton=document.getElementById('locate-me');const hint=document.querySelector('.hint');function consume(e){e.preventDefault();e.stopPropagation()}function ensureUserLocationLayer(){if(map.getSource('user-location'))return;map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':7,'circle-color':'#5aa7ff','circle-stroke-color':'#fff','circle-stroke-width':3}})}function setUserLocationMarker(location,moveCamera){if(!location||!Number.isFinite(location.longitude)||!Number.isFinite(location.latitude))return;ensureUserLocationLayer();map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[location.longitude,location.latitude]},properties:{}}]});if(moveCamera)map.easeTo({center:[location.longitude,location.latitude],zoom:15,duration:500});if(locateButton)locateButton.classList.add('active')}function clearUserLocation(){if(locationWatchId!=null&&navigator.geolocation){navigator.geolocation.clearWatch(locationWatchId)}locationWatchId=null;if(map.getSource('user-location'))map.getSource('user-location').setData({type:'FeatureCollection',features:[]});if(locateButton)locateButton.classList.remove('active');postedLocationToHost=false;post('user-location-cleared',{})}let postedLocationToHost=Boolean(initialUserLocation);function updateUserLocation(pos){var location={longitude:pos.coords.longitude,latitude:pos.coords.latitude};setUserLocationMarker(location,true);if(!postedLocationToHost){postedLocationToHost=true;post('user-location',location)}}function showLocationDenied(){if(hint)hint.textContent='Location is unavailable or permission was denied.';clearUserLocation()}function startUserLocation(){if(locationWatchId!=null)return;if(!navigator.geolocation){showLocationDenied();return}locationWatchId=navigator.geolocation.watchPosition(updateUserLocation,showLocationDenied,{enableHighAccuracy:true,maximumAge:10000,timeout:10000})}document.getElementById('toggle-3d').onclick=function(e){consume(e);set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){consume(e);map.easeTo({bearing:0,duration:450})};locateButton.onclick=function(e){consume(e);if(locationWatchId!=null){clearUserLocation();return}startUserLocation()};
+function consume(e){e.preventDefault();e.stopPropagation()}function ensureUserLocationLayer(){if(map.getSource('user-location'))return;map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':8,'circle-color':'#4f9cff','circle-stroke-color':'#fff','circle-stroke-width':3}})}function setUserLocationMarker(location){if(!location||!Number.isFinite(location.longitude)||!Number.isFinite(location.latitude)||!map.isStyleLoaded())return false;ensureUserLocationLayer();map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[location.longitude,location.latitude]},properties:{}}]});return true}window.__terrainCenterLocation=function(location){if(!setUserLocationMarker(location))return false;var zoom=map.getZoom()<12?14:map.getZoom();map.easeTo({center:[location.longitude,location.latitude],zoom:zoom,duration:650});return true};window.__terrainClearLocation=function(){if(map.getSource('user-location'))map.getSource('user-location').setData({type:'FeatureCollection',features:[]})};document.getElementById('toggle-3d').onclick=function(e){consume(e);set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){consume(e);map.easeTo({bearing:0,duration:450})};
 function category(i){var v=String(i.featureType||(i.properties&&i.properties.definitionKey)||'').toLowerCase();var groups=[['travel',['funnel','pinch','corridor','travel','draw','crossing']],['bedding',['bed','bedding','thermal']],['ridges',['ridge','saddle','bench','spur','knob','hill']],['water',['water','creek','stream','river','drain','pond','wet']],['feeding',['feed','food','staging','field','opening']],['access',['access','wind','pressure','road','trail','route']]];for(var g=0;g<groups.length;g++)for(var t=0;t<groups[g][1].length;t++)if(v.indexOf(groups[g][1][t])>=0)return groups[g][0];return'other'}function fc(items,categorized){return{type:'FeatureCollection',features:(items||[]).filter(function(i){return i&&i.id&&i.geometry}).map(function(i){return{type:'Feature',id:i.id,geometry:i.geometry,properties:{id:i.id,title:i.title||'',featureType:i.featureType||'',waypointType:i.waypointType||'',score:i.score,confidence:i.confidence,sourceFeatureId:i.sourceFeatureId||'',category:categorized?category(i):''}}})}}
 function addLayers(){if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay',{type:'raster',tiles:['${USGS_3DEP_WMS_BASE}?service=WMS&version=1.1.1&request=GetMap&layers='+encodeURIComponent(overlay.layer)+'&styles=&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256'],tileSize:256,attribution:'USGS 3DEP / The National Map'});map.addLayer({id:'usgs-3dep-overlay',type:'raster',source:'usgs-3dep-overlay',paint:{'raster-opacity':overlay.value==='hillshade'?.62:.78}})}
 if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{}}]}});map.addLayer({id:'analysis-polygon-fill',type:'fill',source:'analysis-polygon',paint:{'fill-color':'#d0a65d','fill-opacity':.18}});map.addLayer({id:'analysis-polygon-line',type:'line',source:'analysis-polygon',paint:{'line-color':'#f0d293','line-width':3}})}
@@ -112,17 +121,19 @@ if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.
 [['analysis-polygon-fill','boundary'],['analysis-polygon-line','boundary'],['analysis-features-fill','features'],['analysis-features-line','features'],['analysis-features-circle','features'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
 try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);if(!initialCamera&&(editable||initialAnalysisFit)&&any)map.fitBounds(b,{padding:56,maxZoom:15,duration:0})}catch(e){}
 }
-function entity(type,id){var list=type==='waypoint'?waypoints:features;return(list||[]).find(function(i){return i&&i.id===id})}function coords(geometry,out){if(!geometry)return out;function walk(v){if(!Array.isArray(v))return;if(typeof v[0]==='number'&&typeof v[1]==='number'){out.push(v);return}v.forEach(walk)}walk(geometry.coordinates);return out}window.__terrainSelect=function(command){if(!map.isStyleLoaded())return;var item=entity(command.type,command.id),selected=item&&item.geometry?[{type:'Feature',id:item.id,geometry:item.geometry,properties:{id:item.id}}]:[];map.getSource('analysis-selection').setData({type:'FeatureCollection',features:selected});var related=command.type==='terrainFeature'?(waypoints||[]).filter(function(w){return w.sourceFeatureId===command.id}):[];map.getSource('analysis-related').setData(fc(related,false));var categoryId=command.category||null;map.setPaintProperty('analysis-features-circle','circle-opacity',categoryId?['case',['==',['get','category'],categoryId],1,.2]:1);map.setPaintProperty('analysis-features-line','line-opacity',categoryId?['case',['==',['get','category'],categoryId],.95,.18]:.86);map.setPaintProperty('analysis-features-fill','fill-opacity',categoryId?['case',['==',['get','category'],categoryId],.32,.06]:.24);if(!command.focus||!item||!item.geometry)return;var points=coords(item.geometry,[]);if(!points.length)return;if(item.geometry.type==='Point'){map.easeTo({center:points[0],zoom:Math.max(map.getZoom(),14),duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});return}var bounds=points.reduce(function(b,p){return b.extend(p)},new mapboxgl.LngLatBounds(points[0],points[0]));map.fitBounds(bounds,{padding:55,maxZoom:15,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500})};['analysis-features-fill','analysis-features-line','analysis-features-circle'].forEach(function(layer){map.on('click',layer,function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'terrainFeature',id:id})})});map.on('click','analysis-waypoints-circle',function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'waypoint',id:id})});map.on('load',function(){addLayers();if(initialUserLocation) setUserLocationMarker(initialUserLocation,false);if(initialUserLocationEnabled) startUserLocation();});map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+function entity(type,id){var list=type==='waypoint'?waypoints:features;return(list||[]).find(function(i){return i&&i.id===id})}function coords(geometry,out){if(!geometry)return out;function walk(v){if(!Array.isArray(v))return;if(typeof v[0]==='number'&&typeof v[1]==='number'){out.push(v);return}v.forEach(walk)}walk(geometry.coordinates);return out}window.__terrainSelect=function(command){if(!map.isStyleLoaded())return;var item=entity(command.type,command.id),selected=item&&item.geometry?[{type:'Feature',id:item.id,geometry:item.geometry,properties:{id:item.id}}]:[];map.getSource('analysis-selection').setData({type:'FeatureCollection',features:selected});var related=command.type==='terrainFeature'?(waypoints||[]).filter(function(w){return w.sourceFeatureId===command.id}):[];map.getSource('analysis-related').setData(fc(related,false));var categoryId=command.category||null;map.setPaintProperty('analysis-features-circle','circle-opacity',categoryId?['case',['==',['get','category'],categoryId],1,.2]:1);map.setPaintProperty('analysis-features-line','line-opacity',categoryId?['case',['==',['get','category'],categoryId],.95,.18]:.86);map.setPaintProperty('analysis-features-fill','fill-opacity',categoryId?['case',['==',['get','category'],categoryId],.32,.06]:.24);if(!command.focus||!item||!item.geometry)return;var points=coords(item.geometry,[]);if(!points.length)return;if(item.geometry.type==='Point'){map.easeTo({center:points[0],zoom:Math.max(map.getZoom(),14),duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});return}var bounds=points.reduce(function(b,p){return b.extend(p)},new mapboxgl.LngLatBounds(points[0],points[0]));map.fitBounds(bounds,{padding:55,maxZoom:15,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500})};['analysis-features-fill','analysis-features-line','analysis-features-circle'].forEach(function(layer){map.on('click',layer,function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'terrainFeature',id:id})})});map.on('click','analysis-waypoints-circle',function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'waypoint',id:id})});map.on('load',function(){addLayers();if(initialUserLocation&&initialUserLocationEnabled)setUserLocationMarker(initialUserLocation);post('map-ready',{});});map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+map.on('error',function(event){post('map-error',{message:event&&event.error&&event.error.message||'Mapbox could not load the map.'})});
 })();</script></body></html>`;
 }
 
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("setup");
+  const { height: windowHeight } = useWindowDimensions();
+  const [screen, setScreen] = useState<Screen>("home");
   const [analysisName, setAnalysisName] = useState("");
   const [analysisMode, setAnalysisMode] = useState<(typeof ANALYSIS_MODE_OPTIONS)[number]["value"]>("whitetail");
   const [savedAnalysisId, setSavedAnalysisId] = useState("");
-  const [points, setPoints] = useState<MapPoint[]>(samplePoints());
+  const [points, setPoints] = useState<MapPoint[]>([]);
   const [analysis, setAnalysis] = useState<TerrainAnalysisResponse | null>(null);
   const [initialFitAnalysisId, setInitialFitAnalysisId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -134,7 +145,12 @@ export default function App() {
   const [labelsVisible, setLabelsVisible] = useState(true);
   const [userLocation, setUserLocation] = useState<MapPoint | null>(null);
   const [userLocationEnabled, setUserLocationEnabled] = useState(false);
+  const [locatingUser, setLocatingUser] = useState(false);
   const [account, setAccount] = useState<any>(undefined);
+  const accountRef = useRef<any>(undefined);
+  const [authState, setAuthState] = useState<"booting" | "restoring" | "authenticated" | "unauthenticated" | "unavailable">("booting");
+  const [sessionMessage, setSessionMessage] = useState("");
+  const [restoreNonce, setRestoreNonce] = useState(0);
   const [showAccount, setShowAccount] = useState(false);
   const [orientationReady, setOrientationReady] = useState(false);
   const [orientationVisible, setOrientationVisible] = useState(false);
@@ -149,9 +165,15 @@ export default function App() {
   const [offlineDownload, setOfflineDownload] = useState<{ id: string; controller: AbortController } | null>(null);
   const [layerPreferences, setLayerPreferences] = useState<any>(DEFAULT_LAYER_PREFERENCES);
   const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
+  const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [mapError, setMapError] = useState("");
+  const [mapRetryKey, setMapRetryKey] = useState(0);
+  const [layerSheetVisible, setLayerSheetVisible] = useState(false);
+  const [homeSummary, setHomeSummary] = useState<any>(null);
+  const [homeError, setHomeError] = useState("");
   const [purchase,setPurchase]=useState<any>(null);
   const [quotedSetupKey,setQuotedSetupKey]=useState<string|null>(null),[hadQuote,setHadQuote]=useState(false),[quoteLoading,setQuoteLoading]=useState(false);
-  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),resultsMapRef=useRef<any>(null),analysisLoadGeneration=useRef(0);
+  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),mapWebRef=useRef<any>(null),pendingLocationCenter=useRef<MapPoint|null>(null),analysisLoadGeneration=useRef(0);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -160,14 +182,90 @@ export default function App() {
   const currentSetupKey=useMemo(()=>setupConfigurationKey({analysisName,analysisMode,propertyId:null,polygon}),[analysisName,analysisMode,polygon]);
   const quoteCurrent=quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey});
   const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid:Boolean(polygon&&isValid),quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
-  const mapHtml=useMemo(()=>{const nextPolygon=analysis?.summary?analysis.requestPolygon||polygon||buildPolygonFromPoints(samplePoints()):polygon;if(!nextPolygon)return null;return buildMapHtml({token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup",userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)});},[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,userLocation,userLocationEnabled]);
+  const mapHtml=useMemo(()=>{const nextPolygon=analysis?.summary?analysis.requestPolygon||polygon:polygon;return buildMapHtml({token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup",userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)});},[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,mapRetryKey]);
   const mapSource=useMemo(()=>mapHtml?{html:mapHtml}:null,[mapHtml]);
+  const mapHeight = Math.max(320, Math.min(520, Math.round(windowHeight * .52)));
+  const refreshLocationPermission = useCallback(async () => {
+    try {
+      const permission = await Location.getForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        pendingLocationCenter.current = null;
+        setUserLocationEnabled(false);
+        setUserLocation(null);
+        mapWebRef.current?.injectJavaScript("window.__terrainClearLocation&&window.__terrainClearLocation();true;");
+      }
+    } catch {
+      // Permission status will be checked again on the next explicit location request.
+    }
+  }, []);
 
-  useEffect(() => { stopSarBackground().catch(()=>{}); fetchAccount().then((session) => setAccount(session.user)).catch(() => setAccount(null)); }, []);
+  const restoreAccount = useCallback(async () => {
+    setAuthState("restoring");
+    const restored = await restoreSession();
+    if (restored.status !== "authenticated") {
+      accountRef.current = null; setAccount(null); setAuthState("unauthenticated");
+      if (restored.reason === "expired") setSessionMessage("Your session has expired. Please sign in again.");
+      return;
+    }
+    try {
+      const session = await fetchAccount();
+      accountRef.current = session.user; setAccount(session.user); setSessionMessage(""); setAuthState("authenticated");
+    } catch (nextError: any) {
+      const authenticationFailed = nextError?.status === 401 || nextError?.code === "ACCOUNT_ACCESS_REVOKED";
+      if (authenticationFailed) {
+        accountRef.current = null; setAccount(null); setAuthState("unauthenticated");
+        setSessionMessage("Your session has expired. Please sign in again.");
+      } else if (accountRef.current) {
+        setAuthState("authenticated"); setSessionMessage("HuntIntel Terrain is temporarily unavailable. Some data may not refresh.");
+      } else {
+        setAuthState("unavailable"); setSessionMessage(nextError?.message || "HuntIntel Terrain is temporarily unavailable. Try again.");
+      }
+    }
+  }, []);
+  useEffect(() => {
+    stopSarBackground().catch(()=>{});
+    void restoreAccount();
+    const removeExpired = setSessionExpiredHandler(() => {
+      accountRef.current = null; setAccount(null); setAuthState("unauthenticated");
+      setSessionMessage("Your session has expired. Please sign in again.");
+    });
+    void refreshLocationPermission();
+    const subscription = AppState.addEventListener("change", (state) => { if (state === "active") { void restoreAccount(); void refreshLocationPermission(); } });
+    return () => { removeExpired(); subscription.remove(); };
+  }, [refreshLocationPermission, restoreAccount, restoreNonce]);
   useEffect(()=>{if(!account){setPaymentRecoveryReady(false);return;}let active=true;(async()=>{try{const[hint,recoverable]=await Promise.all([loadPaymentRecoveryHint(SecureStore),fetchRecoverableAnalyses()]);if(!active)return;setPendingAnalyses(recoverable.items||[]);if(hint?.draftId){const restored=await fetchAnalysisPurchase(hint.draftId);if(active){setPurchase(restored);setScreen("payment");}}}catch{}finally{if(active)setPaymentRecoveryReady(true);}})();return()=>{active=false};},[account]);
   useEffect(() => { orientationCompleted(SecureStore).then((completed) => setOrientationVisible(!completed)).catch(() => setOrientationVisible(true)).finally(() => setOrientationReady(true)); }, []);
-  useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); fetchMapConfig().then(setMapConfig).catch(()=>{}); }, []);
-  useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
+  useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); }, []);
+  const loadHomeSummary = useCallback(async () => {
+    setHomeError("");
+    try {
+      const [config, analyses, quota] = await Promise.all([fetchMapConfig(), fetchAnalyses(1, 1), fetchStorageQuota()]);
+      setMapConfig(config);
+      setHomeSummary({ analyses: analyses.ownedTotal || 0, limit: analyses.limit || 150, quota });
+    } catch {
+      setHomeError("Usage and map-layer information could not be refreshed.");
+    }
+  }, []);
+  useEffect(() => { if (account) void loadHomeSummary(); }, [account, loadHomeSummary]);
+  useEffect(() => {
+    if (mapStatus !== "loading") return;
+    const timeout = setTimeout(() => {
+      setMapStatus("error");
+      setMapError("The map could not be loaded. Check your connection and try again.");
+    }, 12000);
+    return () => clearTimeout(timeout);
+  }, [mapStatus, mapRetryKey]);
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (layerSheetVisible) { setLayerSheetVisible(false); return true; }
+      if (showAccount) { setShowAccount(false); return true; }
+      if (screen !== "home") { setScreen("home"); return true; }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [layerSheetVisible, screen, showAccount]);
+  useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
   const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
   const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setLibraryReturnScreen(null);setError("");mapCamera.current=null;setScreen("setup");};
@@ -198,9 +296,10 @@ export default function App() {
   };
   const beginOrientationReplay = async () => { await replayOrientation(SecureStore); setOrientationVisible(true); };
 
-  if (account === undefined) return <SafeAreaView style={styles.safeArea}><View style={styles.container}><Text style={styles.meta}>Restoring secure HuntIntel session…</Text></View></SafeAreaView>;
-  if (!account || showAccount) return <><AccountScreen user={account || undefined} onAuthenticated={setAccount} onSignedOut={() => { stopSarBackground().catch(()=>{}); setAccount(null); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.1" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
-  if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><View style={styles.openingAnalysis}><ActivityIndicator size="large" color="#d0a65d"/><Text style={styles.sectionTitle}>Restoring your analyses…</Text></View></SafeAreaView>;
+  if (authState === "booting" || authState === "restoring") return <SafeAreaView style={styles.safeArea}><AppLoadingScreen /></SafeAreaView>;
+  if (authState === "unavailable") return <SafeAreaView style={styles.safeArea}><ErrorState message={sessionMessage} onRetry={() => setRestoreNonce((value) => value + 1)} /></SafeAreaView>;
+  if (!account || showAccount) return <><AccountScreen user={account || undefined} initialMessage={sessionMessage} onAuthenticated={(user) => { accountRef.current=user; setAccount(user); setSessionMessage(""); setAuthState("authenticated"); }} onSignedOut={() => { stopSarBackground().catch(()=>{}); accountRef.current=null; setAccount(null); setAuthState("unauthenticated"); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.2" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
+  if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><AppLoadingScreen message="Restoring your analyses…" /></SafeAreaView>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
     const generation=++analysisLoadGeneration.current;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);
@@ -212,37 +311,13 @@ export default function App() {
   const syncOffline = async (id: string) => { try { await synchronizeOfflinePackage(id, (operations: any[]) => pushOfflineSync(id, operations), (cursor: number) => pullOfflineSync(id, cursor)); setOfflineStatus("Offline changes synchronized."); setOfflinePackages(await listOfflinePackages()); } catch (nextError) { setOfflineStatus(`Pending sync: ${nextError instanceof Error ? nextError.message : "network unavailable"}`); } };
   const removeOffline = async (id: string) => { await removeOfflinePackage(id); setOfflineStatus("Offline package removed."); setOfflinePackages(await listOfflinePackages()); };
 
-  const openSavedAnalysis = async () => {
-    if (!savedAnalysisId.trim()) {
-      setError("Enter an analysis job ID to reopen a saved analysis.");
-      return;
-    }
-
-    const requestedAnalysisJobId=savedAnalysisId.trim(),generation=++analysisLoadGeneration.current;setAnalysis(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(requestedAnalysisJobId));setNavigationTargetEntity(null);
-    try {
-      setError("");
-      mapCamera.current=null;
-      setScreen("opening");
-      const nextAnalysis = requireOpenedAnalysis(await fetchAnalysis(requestedAnalysisJobId),requestedAnalysisJobId);
-      if(generation!==analysisLoadGeneration.current)return;
-      setInitialFitAnalysisId(requestedAnalysisJobId);
-      setAnalysis(nextAnalysis);
-      setResultsUi(stateForAnalysis(createResultsState(),requestedAnalysisJobId));
-      setScreen("results");
-    } catch (nextError) {
-      if(generation!==analysisLoadGeneration.current)return;
-      setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis.");
-      setScreen("setup");
-    }
-  };
-
   const requestQuote = async () => {
     if (analysisNameError) {
       setError(analysisNameError);
       return;
     }
     if (!polygon) {
-      setError("Draw three or more points or use the sample polygon.");
+      setError("Draw three or more boundary points on the map.");
       return;
     }
 
@@ -283,18 +358,44 @@ export default function App() {
   const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;setInitialFitAnalysisId(null);setAnalysis(nextAnalysis);setSavedAnalysisId(nextAnalysis.analysisJobId||"");setResultsUi(createResultsState(nextAnalysis.analysisJobId||null));setNavigationTargetEntity(null);mapCamera.current=null;setScreen("results");};
   const resumePendingAnalysis=(nextPurchase:any)=>{setPurchase(nextPurchase);setScreen("payment");};
 
-  const addPoint = (event: { nativeEvent: { locationX: number; locationY: number } }) => {
-    const longitude = -87.02 + (event.nativeEvent.locationX / MAP_WIDTH) * 0.36;
-    const latitude = 32.45 + ((MAP_HEIGHT - event.nativeEvent.locationY) / MAP_HEIGHT) * 0.22;
-    invalidatePurchase();setPoints((current) => [...current, { longitude: Number(longitude.toFixed(6)), latitude: Number(latitude.toFixed(6)) }]);
-  };
-
   const addLngLatPoint = (point: MapPoint) => {
     invalidatePurchase();setPoints((current) => [...current, point]);
   };
 
-  const selectResultEntity=(type:string,id:string,focus=true)=>{if(!analysis)return;const next=selectEntity(resultsUi,analysis,type,id);setResultsUi(next);const entity=selectedEntity(next,analysis);resultsMapRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify({type,id:entity?.id||null,category:next.activeCategoryFilter||null,focus})});true;`);};
+  const selectResultEntity=(type:string,id:string,focus=true)=>{if(!analysis)return;const next=selectEntity(resultsUi,analysis,type,id);setResultsUi(next);const entity=selectedEntity(next,analysis);mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify({type,id:entity?.id||null,category:next.activeCategoryFilter||null,focus})});true;`);};
   const navigateToResult=(entity:any)=>{const target=navigationTarget(entity);if(!target)return;setNavigationTargetEntity({...entity,geometry:{type:"Point",coordinates:[target.longitude,target.latitude]}});setResultsUi((current:any)=>({...current,activeResultsTab:"navigation"}));};
+
+  const centerOnCurrentLocation = async () => {
+    if (locatingUser) return;
+    setLocatingUser(true);
+    try {
+      const result: any = await acquireCenterLocation(Location);
+      if (result.status === "denied") {
+        pendingLocationCenter.current = null;
+        setUserLocationEnabled(false);
+        setUserLocation(null);
+        mapWebRef.current?.injectJavaScript("window.__terrainClearLocation&&window.__terrainClearLocation();true;");
+        const actions: any[] = [{ text: "OK" }];
+        if (result.canAskAgain === false) actions.push({ text: "Open Settings", onPress: () => { void Linking.openSettings(); } });
+        Alert.alert("Location Permission Needed", LOCATION_PERMISSION_MESSAGE, actions);
+        return;
+      }
+      if (result.status !== "granted") {
+        Alert.alert("Location Unavailable", LOCATION_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      const location = { latitude: result.location.latitude, longitude: result.location.longitude };
+      setUserLocation(location);
+      setUserLocationEnabled(true);
+      pendingLocationCenter.current = location;
+      if (mapStatus === "ready") {
+        mapWebRef.current?.injectJavaScript(centerLocationJavaScript(location));
+        pendingLocationCenter.current = null;
+      }
+    } finally {
+      setLocatingUser(false);
+    }
+  };
 
   const handleMapMessage = (event: any) => {
     try {
@@ -309,6 +410,17 @@ export default function App() {
       if (message.type === "user-location-cleared") {
         setUserLocation(null);
         setUserLocationEnabled(false);
+      }
+      if (message.type === "map-error") {
+        setMapStatus("error");
+        setMapError("The map could not be loaded. Check your connection and try again.");
+      }
+      if (message.type === "map-ready") {
+        setMapStatus("ready");
+        if (pendingLocationCenter.current) {
+          mapWebRef.current?.injectJavaScript(centerLocationJavaScript(pendingLocationCenter.current));
+          pendingLocationCenter.current = null;
+        }
       }
       if (message.type === "map-camera" && Array.isArray(message.payload?.center)) { mapCamera.current = message.payload; if (initialFitAnalysisId) setInitialFitAnalysisId(null); }
       if (message.type === "result-select" && message.payload?.id && ["waypoint","terrainFeature"].includes(message.payload.entityType)) selectResultEntity(message.payload.entityType,message.payload.id,false);
@@ -338,49 +450,38 @@ export default function App() {
   );
 
   const renderMap = () => {
-    if (offlineManifest?.map?.tilePlan) return <View style={styles.mapWeb}><WebView originWhitelist={["*"]} source={{ html: renderOfflineMapHtml(offlineManifest) }} /></View>;
-    const nextPolygon = analysis?.summary ? analysis.requestPolygon || polygon || buildPolygonFromPoints(samplePoints()) : polygon;
-    if (!nextPolygon) {
-      return null;
-    }
-
-    const features = analysis?.features || [];
-    const waypoints = sortWaypoints(analysis?.waypoints || []);
-    const bounds = getBounds(nextPolygon, waypoints, features);
-
-    if (HAS_MAPBOX_ACCESS_TOKEN) {
-      return (
-        <View style={styles.mapWeb}>
-          <WebView
-            originWhitelist={["*"]}
-            geolocationEnabled
-            ref={screen === "results" ? resultsMapRef : undefined}
-            source={mapSource!}
-            onMessage={handleMapMessage}
-            style={styles.webView}
-          />
-        </View>
-      );
-    }
-
-    return (
-      <Pressable style={styles.map} onPress={screen === "setup" ? addPoint : undefined}>
-        {nextPolygon.coordinates[0].slice(0, -1).map((coordinate: [number, number], index: number) => {
-          const marker = projectCoordinate(coordinate, bounds, MAP_WIDTH, MAP_HEIGHT);
-          return <View key={`polygon-${index}`} style={[styles.vertex, { left: marker.left - 6, top: marker.top - 6 }]} />;
-        })}
-        {screen !== "setup" &&
-          features.filter((feature)=>entityGeometry(feature)?.type==="Point").map((feature) => {
-            const marker = projectCoordinate(entityGeometry(feature).coordinates, bounds, MAP_WIDTH, MAP_HEIGHT);
-            return <Pressable accessibilityRole="button" key={feature.id} onPress={()=>selectResultEntity("terrainFeature",feature.id,false)} style={[styles.featureDot, resultsUi.selectedEntityType==="terrainFeature"&&resultsUi.selectedEntityId===feature.id&&styles.selectedMapDot, { left: marker.left - 5, top: marker.top - 5 }]} />;
-          })}
-        {screen !== "setup" &&
-          waypoints.filter((waypoint)=>entityGeometry(waypoint)?.type==="Point").map((waypoint) => {
-            const marker = projectCoordinate(entityGeometry(waypoint).coordinates, bounds, MAP_WIDTH, MAP_HEIGHT);
-            return <Pressable accessibilityRole="button" key={waypoint.id} onPress={()=>selectResultEntity("waypoint",waypoint.id,false)} style={[styles.waypointDot, resultsUi.selectedEntityType==="waypoint"&&resultsUi.selectedEntityId===waypoint.id&&styles.selectedMapDot, { left: marker.left - 5, top: marker.top - 5 }]} />;
-          })}
+    if (!HAS_MAPBOX_ACCESS_TOKEN) return <ErrorState message="Map configuration is unavailable. Install a build configured with EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN." />;
+    const source = offlineManifest?.map?.tilePlan ? { html: renderOfflineMapHtml(offlineManifest) } : mapSource!;
+    return <View style={[styles.mapWeb, { height: mapHeight }]}>
+      <WebView
+        key={`terrain-map-${mapRetryKey}`}
+        originWhitelist={["*"]}
+        geolocationEnabled
+        ref={mapWebRef}
+        source={source}
+        onLoadStart={() => { setMapStatus("loading"); setMapError(""); }}
+        onLoadEnd={() => { if (offlineManifest?.map?.tilePlan) setMapStatus("ready"); }}
+        onError={() => { setMapStatus("error"); setMapError("The map could not be loaded. Check your connection and try again."); }}
+        onHttpError={() => { setMapStatus("error"); setMapError("The map service returned an error. Please try again."); }}
+        onMessage={handleMapMessage}
+        style={styles.webView}
+      />
+      {mapStatus === "loading" && <View pointerEvents="none" style={styles.mapState}><ActivityIndicator color="#d0a65d" /><Text style={styles.meta}>Loading map…</Text></View>}
+      {mapStatus === "error" && <View style={styles.mapState}><Text style={styles.error}>{mapError}</Text><ActionButton label="Retry Map" primary onPress={() => { setMapStatus("loading"); setMapRetryKey((value) => value + 1); }} /></View>}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Center map on current location"
+        accessibilityState={{ selected: userLocationEnabled, busy: locatingUser, disabled: locatingUser }}
+        disabled={locatingUser}
+        hitSlop={6}
+        onPress={() => { void centerOnCurrentLocation(); }}
+        style={[styles.locationControl, userLocationEnabled && styles.locationControlActive, locatingUser && styles.locationControlDisabled]}
+      >
+        {locatingUser
+          ? <ActivityIndicator color={userLocationEnabled ? "#091008" : "#f0f3ea"} />
+          : <Ionicons name={userLocationEnabled ? "locate" : "locate-outline"} size={24} color={userLocationEnabled ? "#091008" : "#f0f3ea"} />}
       </Pressable>
-    );
+    </View>;
   };
 
   const waypointCards = sortWaypoints(analysis?.waypoints || []);
@@ -398,20 +499,40 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text><Text style={styles.subtitle}>API gateway: {terrainApiBaseUrl}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" style={styles.gearButton} onPress={() => setShowAccount(true)}><Text style={styles.gearText}>⚙︎</Text></Pressable></View>
-        <ActionButton label="My Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
-        <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
-        <ActionButton label="Live SAR" onPress={() => setScreen("sar")} primary={screen === "sar"} />
+      <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container}>
+        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" style={styles.gearButton} onPress={() => setShowAccount(true)}><Text style={styles.gearText}>⚙︎</Text></Pressable></View>
+        {!!sessionMessage && <Text accessibilityLiveRegion="polite" style={styles.warningBanner}>{sessionMessage}</Text>}
+        <View style={styles.navBar}>
+          <ActionButton label="Home" onPress={() => setScreen("home")} primary={screen === "home"} />
+          <ActionButton label="New" onPress={resetSetup} primary={screen === "setup"} />
+          <ActionButton label="Analyses" onPress={() => loadLibrary(1)} primary={screen === "library"} />
+          <ActionButton label="Teams" onPress={() => setScreen("teams")} primary={screen === "teams"} />
+        </View>
+
+        {screen === "home" && <View style={styles.dashboard}>
+          <Text style={styles.eyebrow}>FIELD-READY TERRAIN INTELLIGENCE</Text>
+          <Text style={styles.sectionTitle}>Plan your next analysis</Text>
+          <Text style={styles.meta}>Draw an area, confirm acreage and price, and keep completed analyses ready for field use.</Text>
+          <ActionButton label="New Analysis" primary onPress={resetSetup} />
+          {!!homeError && <View style={styles.inlineError}><Text accessibilityRole="alert" style={styles.error}>{homeError}</Text><ActionButton label="Retry" onPress={() => { void loadHomeSummary(); }} /></View>}
+          <View style={styles.dashboardGrid}>
+            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => loadLibrary(1)}><Text style={styles.itemTitle}>My Analyses</Text><Text style={styles.meta}>{homeSummary ? `${homeSummary.analyses} of ${homeSummary.limit} saved` : "Loading usage…"}</Text></Pressable>
+            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => setScreen("teams")}><Text style={styles.itemTitle}>Teams</Text><Text style={styles.meta}>Manage collaboration</Text></Pressable>
+            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => setScreen("sar")}><Text style={styles.itemTitle}>Live SAR</Text><Text style={styles.meta}>Authorized team coordination</Text></Pressable>
+            <Pressable accessibilityRole="button" style={styles.dashboardCard} onPress={() => setShowAccount(true)}><Text style={styles.itemTitle}>Account</Text><Text style={styles.meta}>{homeSummary ? `${(Number(homeSummary.quota?.usedBytes || 0) / 1073741824).toFixed(2)} GiB storage used` : "Settings and storage"}</Text></Pressable>
+          </View>
+        </View>}
 
         {screen === "library" && <LibraryScreen library={library} pendingAnalyses={pendingAnalyses} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onResumePending={resumePendingAnalysis} onNew={resetSetup} onDelete={deleteLibraryItems} onReturnCurrent={libraryReturnScreen ? () => { setScreen(libraryReturnScreen); setLibraryReturnScreen(null); } : undefined} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
-        {screen === "teams" && <TeamsScreen onClose={() => setScreen("setup")} />}
-        {screen === "sar" && <SarScreen onClose={() => setScreen("setup")} />}
+        {screen === "teams" && <TeamsScreen onClose={() => setScreen("home")} />}
+        {screen === "sar" && <SarScreen onClose={() => setScreen("home")} />}
 
         {screen === "setup" && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Analysis Setup</Text>
-            <Text style={styles.meta}>Draw a real geospatial land area, submit a wildlife, SAR, or terrain assessment analysis, and review features, relationships, waypoints, and the deterministic HTIE report.</Text>
+            <Text style={styles.sectionTitle}>New Analysis</Text>
+            <Text style={styles.meta}>Create terrain features, waypoints, relationships, and a deterministic HTIE report.</Text>
+            <Text style={styles.meta}>1 · Name and mode</Text>
             <TextInput style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Enter Analysis Name" placeholderTextColor="#7f8d7a" maxLength={120} />
             {analysisNameError ? <Text style={styles.error}>{analysisNameError}</Text> : null}
             <Text style={styles.meta}>Analysis mode: {analysisModeLabel(analysisMode)}</Text>
@@ -425,28 +546,14 @@ export default function App() {
                 />
               ))}
             </View>
-            <Text style={[styles.meta, isValid ? styles.success : styles.error]}>
-              {polygon ? `${acreage.toLocaleString()} acres` : "Tap the terrain canvas to add polygon points."}
-            </Text>
-            {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
-            {renderMapControls()}
+            <Text style={styles.meta}>2 · Draw the analysis area</Text>
             {renderMap()}
-            <View style={styles.row}>
-              <ActionButton label="Confirm Acreage & Price" onPress={requestQuote} disabled={!new Set(["ready_for_quote","quoted","quote_stale"]).has(setupPhase)} />
-              <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} />
-              <ActionButton label="Sample Polygon" onPress={() => {invalidatePurchase();mapCamera.current=null;setPoints(samplePoints())}} />
-            </View>
-            <View style={styles.row}>
-              <ActionButton label="Clear" onPress={() => {invalidatePurchase();setPoints([])}} />
-            </View>
-            <TextInput
-              style={styles.input}
-              value={savedAnalysisId}
-              onChangeText={setSavedAnalysisId}
-              placeholder="Saved analysis job id"
-              placeholderTextColor="#7f8d7a"
-            />
-            <ActionButton label="Open Saved Analysis" onPress={openSavedAnalysis} />
+            <View style={styles.mapActions}><ActionButton label="Layers" onPress={() => setLayerSheetVisible(true)} /><ActionButton label="Undo Point" disabled={!points.length} onPress={() => { invalidatePurchase(); setPoints((current) => current.slice(0, -1)); }} /><ActionButton label="Clear" disabled={!points.length} onPress={() => {invalidatePurchase();setPoints([])}} /></View>
+            <Text style={[styles.meta, isValid ? styles.success : styles.error]}>{polygon ? `${acreage.toLocaleString()} acres selected` : "Tap the map to add at least three boundary points."}</Text>
+            <Text style={styles.meta}>3 · Review acreage and price</Text>
+            {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
+            <ActionButton label="Confirm Acreage & Price" onPress={requestQuote} disabled={!new Set(["ready_for_quote","quoted","quote_stale"]).has(setupPhase)} />
+            <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
         )}
@@ -464,10 +571,9 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.eyebrow}>ANALYSIS RESULTS</Text>
             <Text style={styles.sectionTitle}>{String(analysis.analysisName || analysis.summary?.analysisName || analysis.report?.title || "Terrain Analysis")}</Text>
-            <Text style={styles.meta}>Saved analysis: {analysis.analysisJobId || "not persisted"}</Text>
             <Text style={styles.meta}>Mode: {analysisModeLabel(analysis.analysisMode)} · Status: {analysis.status}{analysisDate?` · ${new Date(analysisDate).toLocaleDateString()}`:""}</Text>
-            {renderMapControls()}
             {renderMap()}
+            <ActionButton label="Map Layers" onPress={() => setLayerSheetVisible(true)} />
             <Text style={styles.metric}>Approximate acreage: {Number(analysis.summary?.approximateAcreage || acreage).toLocaleString()} acres</Text>
             <Text style={styles.metric}>Features: {analysis.features.length}</Text>
             <Text style={styles.metric}>Waypoints: {analysis.waypoints.length}</Text>
@@ -513,6 +619,8 @@ export default function App() {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
+      <LayerSheet visible={layerSheetVisible} onClose={() => setLayerSheetVisible(false)}>{renderMapControls()}</LayerSheet>
       {orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}
     </SafeAreaView>
   );
@@ -530,7 +638,7 @@ function ActionButton({
   disabled?: boolean;
 }) {
   return (
-    <Pressable style={[styles.button, primary && styles.buttonPrimary, disabled && styles.buttonDisabled]} onPress={onPress} disabled={disabled}>
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled, selected: primary }} style={[styles.button, primary && styles.buttonPrimary, disabled && styles.buttonDisabled]} onPress={onPress} disabled={disabled}>
       <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{label}</Text>
     </Pressable>
   );
@@ -541,8 +649,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#10140f",
   },
+  keyboard: { flex: 1 },
   container: {
-    padding: 20,
+    padding: 16,
+    paddingBottom: 40,
     gap: 16,
     backgroundColor: "#10140f",
   },
@@ -570,6 +680,11 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 12,
   },
+  navBar: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 2 },
+  dashboard: { backgroundColor: "#182019", borderRadius: 22, padding: 18, gap: 14 },
+  dashboardGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  dashboardCard: { flexGrow: 1, flexBasis: 145, minHeight: 104, justifyContent: "space-between", padding: 14, borderRadius: 16, backgroundColor: "#0f140f", borderWidth: 1, borderColor: "#31412d" },
+  warningBanner: { color: "#f0d293", backgroundColor: "#332a1d", borderRadius: 12, padding: 12, lineHeight: 20 },
   openingAnalysis: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 24 },
   sectionTitle: {
     color: "#f0f3ea",
@@ -596,9 +711,14 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: "#243025",
-    borderRadius: 999,
+    borderRadius: 14,
+    minHeight: 48,
+    minWidth: 48,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    flexShrink: 1,
   },
   buttonPrimary: {
     backgroundColor: "#d0a65d",
@@ -621,46 +741,16 @@ const styles = StyleSheet.create({
     borderColor: "#314a35",
     marginVertical: 14,
     backgroundColor: "#0b0f0c",
+    position: "relative",
   },
   webView: { flex: 1, backgroundColor: "#0b0f0c" },
+  mapState: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 12, padding: 20, backgroundColor: "rgba(11,15,12,.92)" },
+  mapActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   mapControlPanel: { gap: 8, marginTop: 12, marginBottom: 4 },
-  map: {
-    width: MAP_WIDTH,
-    height: MAP_HEIGHT,
-    borderRadius: 20,
-    backgroundColor: "#263126",
-    borderWidth: 1,
-    borderColor: "#445340",
-    overflow: "hidden",
-  },
-  vertex: {
-    position: "absolute",
-    width: 12,
-    height: 12,
-    borderRadius: 999,
-    backgroundColor: "#f0d293",
-  },
-  featureDot: {
-    position: "absolute",
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "#d0a65d",
-  },
-  waypointDot: {
-    position: "absolute",
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "#7eb07d",
-  },
-  selectedMapDot: {
-    width: 18,
-    height: 18,
-    borderWidth: 4,
-    borderColor: "#ffffff",
-    transform: [{ translateX: -4 }, { translateY: -4 }],
-  },
+  locationControl: { position: "absolute", right: 14, bottom: 58, zIndex: 6, width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,29,21,.96)", borderWidth: 1, borderColor: "#758471", shadowColor: "#000", shadowOpacity: .34, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 7 },
+  locationControlActive: { backgroundColor: "#8eab77", borderColor: "#d9edc9" },
+  locationControlDisabled: { opacity: .72 },
+  inlineError: { gap: 8, padding: 12, borderRadius: 14, backgroundColor: "#291c18" },
   metric: {
     color: "#f0f3ea",
   },

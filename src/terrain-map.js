@@ -54,12 +54,7 @@ export const USGS_TERRAIN_OVERLAY_OPTIONS = [
 ];
 
 export function resolveMapboxAccessToken(env = {}) {
-  return String(
-    env.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN ||
-    env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN_MOBILE ||
-    env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN_WEB ||
-    ""
-  ).trim();
+  return String(env.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN || "").trim();
 }
 
 export function mapboxStyleFor(value) {

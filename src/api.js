@@ -1,28 +1,61 @@
 import { accessToken, clearSession } from "./auth";
 import { queueOfflineOperation } from "./offline";
 import { requireAnalysisJobId } from "./analysis-results";
+import { resolveTerrainApiBaseUrl } from "./runtime-config";
 
-const configuredBaseUrl = process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL;
-if (!configuredBaseUrl) throw new Error("EXPO_PUBLIC_TERRAIN_API_BASE_URL is required.");
-const baseUrl = configuredBaseUrl.replace(/\/+$/, "");
+const productionBuild =
+  typeof __DEV__ !== "undefined"
+    ? !__DEV__
+    : process.env.NODE_ENV === "production";
+const baseUrl = resolveTerrainApiBaseUrl(process.env, productionBuild);
+let sessionExpiredHandler = null;
+
+export function setSessionExpiredHandler(handler) {
+  sessionExpiredHandler = typeof handler === "function" ? handler : null;
+  return () => {
+    if (sessionExpiredHandler === handler) sessionExpiredHandler = null;
+  };
+}
 
 export async function request(path, options = {}) {
   const token = await accessToken();
-  const { correlationId: suppliedCorrelationId, ...requestOptions } = options;
+  const {
+    correlationId: suppliedCorrelationId,
+    headers: suppliedHeaders = {},
+    ...requestOptions
+  } = options;
   const requestCorrelationId = suppliedCorrelationId || globalThis.crypto?.randomUUID?.() || `android-${Date.now()}`;
-  const response = await fetch(`${baseUrl}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      "X-Correlation-ID": requestCorrelationId,
-      ...(options.headers || {}),
-    },
-    ...requestOptions,
-  });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...requestOptions,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "X-Correlation-ID": requestCorrelationId,
+        ...suppliedHeaders,
+      },
+    });
+  } catch {
+    const networkError = new Error("HuntIntel Terrain is temporarily unavailable. Check your connection and try again.");
+    networkError.code = "NETWORK_UNAVAILABLE";
+    throw networkError;
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error=new Error(payload?.error?.message||"Terrain API request failed.");error.code=payload?.error?.code;error.details=payload?.error?.details;error.correlationId=response.headers?.get?.("X-Correlation-ID")||payload?.correlationId||requestCorrelationId;error.retryAfter=Number(response.headers?.get?.("Retry-After")||0)||null;if(response.status===401||error.code==="ACCOUNT_ACCESS_REVOKED")await clearSession();throw error;
+    const expired = response.status === 401 || payload?.error?.code === "ACCOUNT_ACCESS_REVOKED";
+    const error = new Error(expired ? "Your session has expired. Please sign in again." : payload?.error?.message || "HuntIntel Terrain could not complete that request.");
+    error.code = payload?.error?.code;
+    error.status = response.status;
+    error.details = payload?.error?.details;
+    error.correlationId = response.headers?.get?.("X-Correlation-ID") || payload?.correlationId || requestCorrelationId;
+    error.retryAfter = Number(response.headers?.get?.("Retry-After") || 0) || null;
+    if (expired) {
+      await clearSession();
+      sessionExpiredHandler?.(error);
+    }
+    throw error;
   }
 
   return payload;
