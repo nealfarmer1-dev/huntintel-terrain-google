@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { accountRequest, fetchAccount, fetchStorageQuota } from "./api";
 import { clearSession, storeSession } from "./auth";
 import { listOfflinePackages } from "./offline";
 import { PasswordField } from "./PasswordField";
 
 type Mode = "login" | "register" | "verify" | "forgot" | "reset" | "security";
+const TERMS_URL = "https://app.huntintelapp.com/legal/terms";
+const PRIVACY_URL = "https://app.huntintelapp.com/legal/privacy";
 type Props = {
   user?: any;
   onAuthenticated: (user: any) => void;
@@ -31,7 +33,8 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [agreementsAccepted, setAgreementsAccepted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [message, setMessage] = useState("");
   const [quota, setQuota] = useState<any>(null);
   const [downloadCount, setDownloadCount] = useState(0);
@@ -47,11 +50,15 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
       setMessage("Passwords do not match.");
       return;
     }
+    if (mode === "register" && (!termsAccepted || !privacyAccepted)) {
+      setMessage("Accept the Terms of Use and Privacy Policy to continue.");
+      return;
+    }
     if (mode === "reset" && newPassword !== confirmPassword) {
       setMessage("Passwords do not match.");
       return;
     }
-    const body = mode === "reset" ? { token, password: newPassword, confirm_password: confirmPassword } : mode === "verify" ? { token } : mode === "register" ? { email, password, confirm_password: confirmPassword, first_name: firstName, last_name: lastName, terms_accepted: agreementsAccepted, privacy_accepted: agreementsAccepted, waiver_accepted: agreementsAccepted } : { email, password };
+    const body = mode === "reset" ? { token, password: newPassword, confirm_password: confirmPassword } : mode === "verify" ? { token } : mode === "register" ? { email, password, confirm_password: confirmPassword, first_name: firstName, last_name: lastName, terms_accepted: termsAccepted, privacy_accepted: privacyAccepted } : { email, password };
     try {
       setMessage("Working…");
       const result = await accountRequest(paths[mode], body);
@@ -94,10 +101,10 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
     {["login", "register"].includes(mode) && <PasswordField style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#82907e" textContentType={mode === "login" ? "password" : "newPassword"} autoComplete={mode === "login" ? "current-password" : "new-password"} />}
     {mode === "login" && <Pressable accessibilityRole="link" onPress={() => setMode("forgot")} style={styles.forgotPasswordLink}><Text style={styles.forgotPasswordText}>Forgot Password?</Text></Pressable>}
     {mode === "register" && <PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />}
-    {mode === "register" && <><TextInput style={styles.input} value={firstName} onChangeText={setFirstName} placeholder="First name" placeholderTextColor="#82907e" /><TextInput style={styles.input} value={lastName} onChangeText={setLastName} placeholder="Last name" placeholderTextColor="#82907e" /><Button label={agreementsAccepted ? "Agreements accepted ✓" : "Accept Terms, Privacy Policy & Waiver"} onPress={() => setAgreementsAccepted(!agreementsAccepted)} /></>}
+    {mode === "register" && <><TextInput style={styles.input} value={firstName} onChangeText={setFirstName} placeholder="First name" placeholderTextColor="#82907e" /><TextInput style={styles.input} value={lastName} onChangeText={setLastName} placeholder="Last name" placeholderTextColor="#82907e" /><View style={styles.agreements}><Text style={styles.agreementsTitle}>Required Agreements</Text><Agreement label="I agree to the Terms of Use." linkLabel="Read Terms of Use" url={TERMS_URL} checked={termsAccepted} onChange={setTermsAccepted} /><Agreement label="I agree to the Privacy Policy." linkLabel="Read Privacy Policy" url={PRIVACY_URL} checked={privacyAccepted} onChange={setPrivacyAccepted} /></View></>}
     {["verify", "reset"].includes(mode) && <TextInput style={styles.input} value={token} onChangeText={setToken} placeholder="Email token" placeholderTextColor="#82907e" autoCapitalize="none" />}
     {mode === "reset" && <><PasswordField style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" /><PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" /></>}
-    <Button label="Continue" primary onPress={submit} />
+    <Button label="Continue" primary disabled={mode === "register" && (!termsAccepted || !privacyAccepted)} onPress={submit} />
     {mode === "login" && <Button label="Create Account" onPress={() => setMode("register")} />}
     {mode === "verify" && <Button label="Resend Verification" onPress={async () => { try { await accountRequest("/resend-verification", { email }); setMessage("Verification email requested."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to resend."); } }} />}
     {!["login"].includes(mode) && <Button label="Back to Sign In" onPress={() => setMode("login")} />}
@@ -107,8 +114,9 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
 }
 
 function Section({ title, children }: any) { return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{children}</View>; }
-function Button({ label, onPress, primary, danger }: any) { return <Pressable accessibilityRole="button" onPress={onPress} style={[styles.button, primary && styles.primary, danger && styles.danger]}><Text style={[styles.buttonText, primary && styles.primaryText]}>{label}</Text></Pressable>; }
+function Agreement({ label, linkLabel, url, checked, onChange }: any) { return <View style={styles.agreement}><Pressable accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked }} hitSlop={4} onPress={() => onChange(!checked)} style={styles.agreementToggle}><View style={[styles.checkbox, checked && styles.checkboxChecked]}><Text style={styles.checkmark}>{checked ? "✓" : ""}</Text></View><Text style={styles.agreementText}>{label}</Text></Pressable><Pressable accessibilityRole="link" accessibilityLabel={`${linkLabel}, opens in browser`} onPress={() => Linking.openURL(url)} style={styles.legalLink}><Text style={styles.legalLinkText}>{linkLabel}</Text></Pressable></View>; }
+function Button({ label, onPress, primary, danger, disabled }: any) { return <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={[styles.button, primary && styles.primary, danger && styles.danger, disabled && styles.disabled]}><Text style={[styles.buttonText, primary && styles.primaryText]}>{label}</Text></Pressable>; }
 const styles = StyleSheet.create({
   safe:{flex:1,backgroundColor:"#10140f"},page:{padding:20,gap:14},wrap:{flexGrow:1,justifyContent:"center",padding:22},card:{gap:12,padding:24,borderRadius:24,backgroundColor:"#182019"},
-  header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",gap:12},eyebrow:{color:"#d0a65d",letterSpacing:2,textTransform:"uppercase",fontSize:12},title:{color:"#f0f3ea",fontSize:30,fontWeight:"800"},section:{gap:10,padding:18,borderRadius:20,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},sectionTitle:{color:"#f0f3ea",fontSize:20,fontWeight:"800"},label:{color:"#d0a65d",fontSize:12,textTransform:"uppercase",marginTop:4},value:{color:"#f0f3ea",fontSize:16},input:{color:"#f0f3ea",backgroundColor:"#0f140f",borderRadius:14,padding:14},forgotPasswordLink:{alignSelf:"flex-end",minHeight:44,justifyContent:"center",marginTop:-8},forgotPasswordText:{color:"#d0a65d",fontSize:13,fontWeight:"700"},meta:{color:"#a8b5a2",lineHeight:20},button:{padding:14,borderRadius:14,backgroundColor:"#283329",alignItems:"center"},primary:{backgroundColor:"#d0a65d"},danger:{backgroundColor:"#9b493e"},buttonText:{color:"#f5f2e9",fontWeight:"700"},primaryText:{color:"#19140d"}
+  header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",gap:12},eyebrow:{color:"#d0a65d",letterSpacing:2,textTransform:"uppercase",fontSize:12},title:{color:"#f0f3ea",fontSize:30,fontWeight:"800"},section:{gap:10,padding:18,borderRadius:20,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},sectionTitle:{color:"#f0f3ea",fontSize:20,fontWeight:"800"},label:{color:"#d0a65d",fontSize:12,textTransform:"uppercase",marginTop:4},value:{color:"#f0f3ea",fontSize:16},input:{color:"#f0f3ea",backgroundColor:"#0f140f",borderRadius:14,padding:14},forgotPasswordLink:{alignSelf:"flex-end",minHeight:44,justifyContent:"center",marginTop:-8},forgotPasswordText:{color:"#d0a65d",fontSize:13,fontWeight:"700"},agreements:{gap:14,paddingVertical:8},agreementsTitle:{color:"#d0a65d",fontSize:12,fontWeight:"800",letterSpacing:1.5,textTransform:"uppercase"},agreement:{gap:2},agreementToggle:{minHeight:48,flexDirection:"row",alignItems:"center",gap:12},checkbox:{width:24,height:24,borderWidth:2,borderColor:"#82907e",borderRadius:5,alignItems:"center",justifyContent:"center"},checkboxChecked:{backgroundColor:"#d0a65d",borderColor:"#d0a65d"},checkmark:{color:"#19140d",fontWeight:"900"},agreementText:{flex:1,color:"#f0f3ea",lineHeight:20},legalLink:{minHeight:44,alignSelf:"flex-start",justifyContent:"center",marginLeft:36,paddingHorizontal:4},legalLinkText:{color:"#d0a65d",fontWeight:"700",textDecorationLine:"underline"},meta:{color:"#a8b5a2",lineHeight:20},button:{padding:14,borderRadius:14,backgroundColor:"#283329",alignItems:"center"},primary:{backgroundColor:"#d0a65d"},danger:{backgroundColor:"#9b493e"},disabled:{opacity:.45},buttonText:{color:"#f5f2e9",fontWeight:"700"},primaryText:{color:"#19140d"}
 });
