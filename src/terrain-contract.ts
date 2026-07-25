@@ -93,7 +93,7 @@ export interface TerrainAnalysisResponse {
   analysisName?: string;
   createdAt?: string;
   completedAt?: string | null;
-  requestPolygon?: TerrainAnalysisRequest["polygon"] | null;
+  requestPolygon: TerrainAnalysisRequest["polygon"];
   analysisMode?: TerrainAnalysisRequest["analysisMode"];
   species?: TerrainAnalysisRequest["species"];
   persisted: boolean;

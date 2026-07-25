@@ -34,7 +34,7 @@ test("native tab and selection state are excluded from memoized map HTML depende
   const memo = app.match(/const mapHtml=useMemo\([\s\S]+?\);\n  const mapSource/)?.[0] || "";
   assert.ok(memo);
   assert.doesNotMatch(memo, /resultsUi/);
-  assert.match(app, /const source = offlineManifest[\s\S]*source=\{source\}/);
+  assert.match(app, /const usingOfflinePackage = offlineManifest\?\.analysisJobId===analysis\?\.analysisJobId[\s\S]*const source = usingOfflinePackage[\s\S]*source=\{source\}/);
 });
 
 test("native report PDF field records and exact analysis identifiers remain wired without Analysis Tour", () => {
