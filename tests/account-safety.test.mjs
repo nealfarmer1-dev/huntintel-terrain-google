@@ -106,15 +106,17 @@ test("Account UI provides a safe exit, separated actions, and second-tap deletio
   assert.match(account, /loadingLabel="Deleting account…"/);
   assert.match(account, /accessibilityState=\{\{ disabled: inactive, busy:Boolean\(loading\) \}\}/);
   assert.match(account, /title="Session"/);
-  assert.match(account, /title="Danger Zone"/);
-  assert.match(account, /different from signing out/);
-  assert.match(account, /cannot be undone/);
+  assert.match(account, /Deleting your account is permanent and removes associated account data\./);
+  assert.doesNotMatch(account, /Danger Zone/);
+  assert.match(account, /"Permanently Delete Account\?"/);
+  assert.match(account, /"Your HuntIntel account and associated data will be permanently deleted\. This action cannot be undone\."/);
   assert.match(account, /\{ cancelable: true, onDismiss:/);
   assert.match(account, /\{ text: "Cancel", style: "cancel"/);
   assert.match(account, /\{ text: "Delete Account", style: "destructive"/);
   assert.match(account, /deleteAccount: \(\) => accountRequest\("", undefined, "DELETE"\)/);
-  assert.ok(account.indexOf('title="Session"') < account.indexOf('title="Danger Zone"'));
+  assert.ok(account.indexOf('title="Session"') < account.indexOf("<View style={styles.dangerZone}>"));
   assert.ok(account.indexOf('label="Sign Out"') < account.indexOf('label="Delete Account"'));
+  assert.match(account, /<View style=\{styles\.dangerZone\}>\s*<View style=\{styles\.section\}>/);
   assert.match(account, /dangerZone:\{marginTop:24\}/);
 
   assert.match(app, /if \(showAccount\) \{ setShowAccount\(false\); return true; \}/);

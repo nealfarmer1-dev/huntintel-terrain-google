@@ -100,8 +100,8 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
     deleteDialogOpen.current = true;
     setDeleteAccountMessage("");
     Alert.alert(
-      "Permanently delete account?",
-      "Your HuntIntel account and app data associated with it will be permanently deleted according to the account deletion policy. This is not the same as signing out, and it cannot be undone.",
+      "Permanently Delete Account?",
+      "Your HuntIntel account and associated data will be permanently deleted. This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel", onPress: () => { deleteDialogOpen.current = false; } },
         { text: "Delete Account", style: "destructive", onPress: () => {
@@ -146,11 +146,11 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
         {!!signOutMessage && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.actionError}>{signOutMessage}</Text>}
       </Section>
       <View style={styles.dangerZone}>
-        <Section title="Danger Zone">
-          <Text style={styles.dangerExplanation}>Deleting your account is permanent, removes associated account data according to the deletion policy, and is different from signing out.</Text>
+        <View style={styles.section}>
+          <Text style={styles.dangerExplanation}>Deleting your account is permanent and removes associated account data.</Text>
           <Button label="Delete Account" loadingLabel="Deleting account…" accessibilityLabel="Permanently delete HuntIntel account" danger loading={isDeletingAccount} disabled={isSigningOut} onPress={confirmDeleteAccount} />
           {!!deleteAccountMessage && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.actionError}>{deleteAccountMessage}</Text>}
-        </Section>
+        </View>
       </View>
     </ScrollView></SafeAreaView>;
   }
