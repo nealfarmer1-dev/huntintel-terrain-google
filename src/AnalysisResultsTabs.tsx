@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { FieldRecordsScreen } from "./FieldRecordsScreen";
 import { NavigationPanel } from "./NavigationPanel";
-import { entityGeometry, featureGroup, groupTerrainFeatures, navigationTarget, relatedWaypointIds, selectedEntity, sortResultEntities } from "./analysis-results";
+import { entityGeometry, featureGroup, groupTerrainFeatures, navigationTarget, relatedWaypointIds, selectedEntity, sortResultEntities, waypointDetails } from "./analysis-results";
 
 const TABS = [["waypoints", "Waypoints"], ["features", "Terrain Features"], ["navigation", "Field Navigation"], ["records", "Notes & Attachments"]];
 
@@ -15,20 +15,22 @@ function Button({ label, onPress, selected = false, disabled = false, role = "bu
 function Detail({ entity, type, analysis, onSelect, onNavigate }: any) {
   if (!entity) return <View style={s.detail}><Text style={s.meta}>Select a {type === "waypoint" ? "waypoint" : "terrain feature"} to view its full details.</Text></View>;
   const geometry = entityGeometry(entity); const target = navigationTarget(entity);
+  const waypoint = type === "waypoint" ? waypointDetails(entity) : null;
   const related = type === "terrainFeature" ? relatedWaypointIds(entity.id, analysis.waypoints || []) : [];
   return <View style={s.detail} accessibilityLiveRegion="polite">
-    <Text style={s.eyebrow}>SELECTED {type === "waypoint" ? "WAYPOINT" : "TERRAIN FEATURE"}</Text>
-    <Text style={s.title}>{entity.title || entity.properties?.definitionLabel || entity.featureType || (type === "waypoint" ? "Untitled waypoint" : "Terrain feature")}</Text>
-    <Text style={s.meta}>{entity.reason || entity.explanation || entity.properties?.confidenceReason || "No additional reasoning was returned."}</Text>
-    <Text style={s.metric}>Score {Number(entity.score || 0).toFixed(1)} · Confidence {Number(entity.confidence || 0).toFixed(2)}</Text>
-    <Text style={s.meta}>{geometry ? `Map geometry: ${geometry.type}` : "No map geometry is available for this result."}</Text>
+    <Text style={s.eyebrow}>{waypoint?.eyebrow || "SELECTED TERRAIN FEATURE"}</Text>
+    <Text style={s.title}>{waypoint?.title || entity.title || entity.properties?.definitionLabel || entity.featureType || "Terrain feature"}</Text>
+    {waypoint && <Text style={s.meta}>{waypoint.type}</Text>}
+    <Text style={s.meta}>{waypoint?.reason || entity.reason || entity.explanation || entity.properties?.confidenceReason || "No additional reasoning was returned."}</Text>
+    <Text style={s.metric}>{waypoint ? `Score ${waypoint.score} · Confidence ${waypoint.confidence}` : `Score ${Number(entity.score || 0).toFixed(1)} · Confidence ${Number(entity.confidence || 0).toFixed(2)}`}</Text>
+    <Text style={s.meta}>{waypoint?.geometry || (geometry ? `Map geometry: ${geometry.type}` : "No map geometry is available for this result.")}</Text>
     {!!related.length && <Text style={s.meta}>Explicitly related waypoints: {related.length}</Text>}
     <View style={s.row}><Button label="Show on map" disabled={!geometry} onPress={() => onSelect(type, entity.id, true)} /><Button label="Navigate" disabled={!target} onPress={() => onNavigate(entity)} /></View>
     {!target && <Text style={s.meta}>Navigation requires a valid point coordinate; no target was fabricated.</Text>}
   </View>;
 }
 
-export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setResultsUi, onSelect, onNavigate, navigationTargetEntity }: any) {
+export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setResultsUi, onSelect, onNavigate, navigationTargetEntity, navigationRequestNonce = 0, onNavigationRequestVisible }: any) {
   const selected = selectedEntity(resultsUi, analysis);
   const waypoints = sortResultEntities(analysis.waypoints || [], resultsUi.waypointSort);
   const visibleWaypoints = waypoints.slice(0, resultsUi.waypointLimit);
@@ -54,7 +56,7 @@ export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setRes
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs} accessibilityRole="tablist">{TABS.map(([id, label]) => <Button key={id} role="tab" label={id === "waypoints" ? `${label} (${analysis.waypoints?.length || 0})` : id === "features" ? `${label} (${analysis.features?.length || 0})` : label} selected={resultsUi.activeResultsTab === id} onPress={() => activate(id)} />)}</ScrollView>
     <View style={resultsUi.activeResultsTab === "waypoints" ? undefined : s.hidden}>{waypointPanel}</View>
     <View style={resultsUi.activeResultsTab === "features" ? undefined : s.hidden}>{featurePanel}</View>
-    <View style={resultsUi.activeResultsTab === "navigation" ? undefined : s.hidden}><NavigationPanel key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints} selectedTarget={navigationTargetEntity} onSelectTarget={(waypoint:any)=>{onSelect("waypoint",waypoint.id,false);onNavigate(waypoint)}} /></View>
+    <View style={resultsUi.activeResultsTab === "navigation" ? undefined : s.hidden}><NavigationPanel key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints} selectedTarget={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} onRequestVisible={onNavigationRequestVisible} onSelectTarget={(waypoint:any)=>{onSelect("waypoint",waypoint.id,false);onNavigate(waypoint)}} /></View>
     <View style={resultsUi.activeResultsTab === "records" ? undefined : s.hidden}><FieldRecordsScreen key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints.map(({ id, title }: any) => ({ id, title }))} /></View>
   </View>;
 }

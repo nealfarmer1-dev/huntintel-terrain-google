@@ -38,7 +38,7 @@ import { buildPolygonFromPoints, calculateApproximateAcreage } from "./src/terra
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
 import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
-import { createResultsState, entityGeometry, navigationTarget, selectEntity, selectedEntity, stateForAnalysis } from "./src/analysis-results";
+import { createResultsState, entityGeometry, navigableWaypointById, navigationTarget, selectEntity, selectedEntity, stateForAnalysis, waypointDetails } from "./src/analysis-results";
 import { requireOpenedAnalysis, withAnalysisBoundary } from "./src/analysis-opening";
 import { OrientationModal } from "./src/OrientationModal";
 import { completeOrientation, orientationCompleted, replayOrientation } from "./src/orientation";
@@ -91,15 +91,16 @@ function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOve
   const style = mapboxStyleFor(basemap);
   const center = polygon?.coordinates?.[0]?.[0] || [-87.0, 32.6];
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
+  const mapWaypoints = (waypoints || []).map((waypoint: any) => ({ ...waypoint, __popup: waypointDetails(waypoint) }));
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
-<style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
+<style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}.terrain-waypoint-popup .mapboxgl-popup-content{box-sizing:border-box;width:min(270px,calc(100vw - 40px));max-height:min(290px,calc(100vh - 28px));overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px;border:1px solid #6f8f55;border-radius:14px;background:#111812;color:#f0f3ea;box-shadow:0 8px 24px rgba(0,0,0,.48)}.terrain-waypoint-popup .mapboxgl-popup-close-button{width:44px;height:44px;color:#f0f3ea;font-size:24px}.terrain-waypoint-popup.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip{border-top-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-top .mapboxgl-popup-tip{border-bottom-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip{border-right-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip{border-left-color:#111812}.waypoint-popup{display:flex;min-width:0;flex-direction:column;gap:7px;padding-right:28px}.waypoint-popup-eyebrow{color:#d0a65d;font-size:10px;font-weight:800;letter-spacing:1.2px}.waypoint-popup-title{font-size:17px;font-weight:800;line-height:1.2}.waypoint-popup-type,.waypoint-popup-reason,.waypoint-popup-geometry{color:#aab7a5;font-size:12px;line-height:1.35}.waypoint-popup-metric{color:#f0d293;font-size:12px;font-weight:700}.waypoint-popup-navigate{width:100%;min-height:44px;margin-top:3px;border:1px solid #e5c682;border-radius:10px;background:#d0a65d;color:#19140d;font-size:14px;font-weight:800;touch-action:manipulation}.waypoint-popup-navigate:focus{outline:2px solid #fff2a8;outline-offset:2px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js"></script><script>(function(){
 window.onerror=function(message){post('map-error',{message:String(message||'Map failed to load.')})};
 mapboxgl.accessToken=${safeJson(token)};
 const polygon=${safeJson(polygon)};
 const features=${safeJson(features || [])};
-const waypoints=${safeJson(waypoints || [])};
+const waypoints=${safeJson(mapWaypoints)};
 const style=${safeJson(style)};
 const overlay=${safeJson(overlay || null)};
 const labelsVisible=${safeJson(labelsVisible)};
@@ -125,7 +126,46 @@ if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.
 [['analysis-features-fill','features'],['analysis-features-line','features'],['analysis-features-circle','features'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
 try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);if(!initialCamera&&(editable||initialAnalysisFit)&&any)map.fitBounds(b,{padding:56,maxZoom:15,duration:0})}catch(e){}
 }
-function entity(type,id){var list=type==='waypoint'?waypoints:features;return(list||[]).find(function(i){return i&&i.id===id})}function coords(geometry,out){if(!geometry)return out;function walk(v){if(!Array.isArray(v))return;if(typeof v[0]==='number'&&typeof v[1]==='number'){out.push(v);return}v.forEach(walk)}walk(geometry.coordinates);return out}window.__terrainSelect=function(command){if(!map.isStyleLoaded())return;var item=entity(command.type,command.id),selected=item&&item.geometry?[{type:'Feature',id:item.id,geometry:item.geometry,properties:{id:item.id}}]:[];map.getSource('analysis-selection').setData({type:'FeatureCollection',features:selected});var related=command.type==='terrainFeature'?(waypoints||[]).filter(function(w){return w.sourceFeatureId===command.id}):[];map.getSource('analysis-related').setData(fc(related,false));var categoryId=command.category||null;map.setPaintProperty('analysis-features-circle','circle-opacity',categoryId?['case',['==',['get','category'],categoryId],1,.2]:1);map.setPaintProperty('analysis-features-line','line-opacity',categoryId?['case',['==',['get','category'],categoryId],.95,.18]:.86);map.setPaintProperty('analysis-features-fill','fill-opacity',categoryId?['case',['==',['get','category'],categoryId],.32,.06]:.24);if(!command.focus||!item||!item.geometry)return;var points=coords(item.geometry,[]);if(!points.length)return;if(item.geometry.type==='Point'){map.easeTo({center:points[0],zoom:Math.max(map.getZoom(),14),duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});return}var bounds=points.reduce(function(b,p){return b.extend(p)},new mapboxgl.LngLatBounds(points[0],points[0]));map.fitBounds(bounds,{padding:55,maxZoom:15,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500})};['analysis-features-fill','analysis-features-line','analysis-features-circle'].forEach(function(layer){map.on('click',layer,function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'terrainFeature',id:id})})});map.on('click','analysis-waypoints-circle',function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'waypoint',id:id})});map.on('load',function(){addLayers();if(initialUserLocation&&initialUserLocationEnabled)setUserLocationMarker(initialUserLocation);post('map-ready',{});});map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
+function entity(type,id){var list=type==='waypoint'?waypoints:features;return(list||[]).find(function(i){return i&&i.id===id})}
+function coords(geometry,out){if(!geometry)return out;function walk(v){if(!Array.isArray(v))return;if(typeof v[0]==='number'&&typeof v[1]==='number'){out.push(v);return}v.forEach(walk)}walk(geometry.coordinates);return out}
+function popupText(parent,className,value){var node=document.createElement('div');node.className=className;node.textContent=String(value==null?'':value);parent.appendChild(node)}
+var activeWaypointPopup=null;
+var activeWaypointPopupId=null;
+function showWaypointPopup(item,lngLat){
+  if(!item||!item.__popup)return;
+  if(activeWaypointPopup)activeWaypointPopup.remove();
+  var detail=item.__popup;
+  var content=document.createElement('section');
+  content.className='waypoint-popup';
+  content.setAttribute('aria-label','Waypoint details');
+  popupText(content,'waypoint-popup-eyebrow',detail.eyebrow);
+  popupText(content,'waypoint-popup-title',detail.title);
+  popupText(content,'waypoint-popup-type',detail.type);
+  popupText(content,'waypoint-popup-reason',detail.reason);
+  popupText(content,'waypoint-popup-metric','Score '+detail.score+' · Confidence '+detail.confidence);
+  popupText(content,'waypoint-popup-geometry',detail.geometry);
+  var navigate=document.createElement('button');
+  navigate.type='button';
+  navigate.className='waypoint-popup-navigate';
+  navigate.textContent='Navigate to';
+  navigate.setAttribute('aria-label','Navigate to '+detail.title);
+  navigate.onclick=function(event){consume(event);post('waypoint-navigate',{id:item.id})};
+  content.appendChild(navigate);
+  var coordinates=item.geometry&&item.geometry.type==='Point'&&item.geometry.coordinates;
+  var popup=new mapboxgl.Popup({className:'terrain-waypoint-popup',closeOnClick:true,maxWidth:'300px',offset:12});
+  activeWaypointPopup=popup;
+  activeWaypointPopupId=item.id;
+  popup.on('close',function(){if(activeWaypointPopup===popup){activeWaypointPopup=null;activeWaypointPopupId=null}});
+  popup.setLngLat(coordinates||lngLat).setDOMContent(content).addTo(map);
+}
+window.__terrainSelect=function(command){if(!map.isStyleLoaded())return;if(activeWaypointPopup&&(command.type!=='waypoint'||command.id!==activeWaypointPopupId))activeWaypointPopup.remove();var item=entity(command.type,command.id),selected=item&&item.geometry?[{type:'Feature',id:item.id,geometry:item.geometry,properties:{id:item.id}}]:[];map.getSource('analysis-selection').setData({type:'FeatureCollection',features:selected});var related=command.type==='terrainFeature'?(waypoints||[]).filter(function(w){return w.sourceFeatureId===command.id}):[];map.getSource('analysis-related').setData(fc(related,false));var categoryId=command.category||null;map.setPaintProperty('analysis-features-circle','circle-opacity',categoryId?['case',['==',['get','category'],categoryId],1,.2]:1);map.setPaintProperty('analysis-features-line','line-opacity',categoryId?['case',['==',['get','category'],categoryId],.95,.18]:.86);map.setPaintProperty('analysis-features-fill','fill-opacity',categoryId?['case',['==',['get','category'],categoryId],.32,.06]:.24);if(!command.focus||!item||!item.geometry)return;var points=coords(item.geometry,[]);if(!points.length)return;if(item.geometry.type==='Point'){map.easeTo({center:points[0],zoom:Math.max(map.getZoom(),14),duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});return}var bounds=points.reduce(function(b,p){return b.extend(p)},new mapboxgl.LngLatBounds(points[0],points[0]));map.fitBounds(bounds,{padding:55,maxZoom:15,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500})};
+['analysis-features-fill','analysis-features-line','analysis-features-circle'].forEach(function(layer){map.on('click',layer,function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'terrainFeature',id:id})})});
+map.on('click','analysis-waypoints-circle',function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(!id)return;var item=entity('waypoint',id);post('result-select',{entityType:'waypoint',id:id});showWaypointPopup(item,e.lngLat)});
+map.on('mouseenter','analysis-waypoints-circle',function(){map.getCanvas().style.cursor='pointer'});
+map.on('mouseleave','analysis-waypoints-circle',function(){map.getCanvas().style.cursor=''});
+map.on('load',function(){addLayers();if(initialUserLocation&&initialUserLocationEnabled)setUserLocationMarker(initialUserLocation);post('map-ready',{});});
+map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});
+map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
 map.on('error',function(event){post('map-error',{message:event&&event.error&&event.error.message||'Mapbox could not load the map.'})});
 })();</script></body></html>`;
 }
@@ -144,6 +184,7 @@ export default function App() {
   const [selectedWaypoint, setSelectedWaypoint] = useState<TerrainWaypoint | null>(null);
   const [resultsUi, setResultsUi] = useState<any>(createResultsState());
   const [navigationTargetEntity, setNavigationTargetEntity] = useState<any>(null);
+  const [navigationRequestNonce, setNavigationRequestNonce] = useState(0);
   const [basemap, setBasemap] = useState("satellite");
   const [terrainOverlay, setTerrainOverlay] = useState("");
   const [labelsVisible, setLabelsVisible] = useState(true);
@@ -176,7 +217,7 @@ export default function App() {
   const [homeError, setHomeError] = useState("");
   const [purchase,setPurchase]=useState<any>(null);
   const [quotedSetupKey,setQuotedSetupKey]=useState<string|null>(null),[hadQuote,setHadQuote]=useState(false),[quoteLoading,setQuoteLoading]=useState(false);
-  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),mapWebRef=useRef<any>(null),pendingLocationCenter=useRef<MapPoint|null>(null),analysisLoadGeneration=useRef(0);
+  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),mapWebRef=useRef<any>(null),pendingLocationCenter=useRef<MapPoint|null>(null),analysisLoadGeneration=useRef(0),appScrollRef=useRef<ScrollView|null>(null);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -277,12 +318,13 @@ export default function App() {
     return () => subscription.remove();
   }, [layerSheetVisible, screen, showAccount]);
   useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
+  const revealNavigationPanel=useCallback((nativeHandle:number)=>{appScrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(nativeHandle,24,true);},[]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
   const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
-  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setLibraryReturnScreen(null);setError("");mapCamera.current=null;setScreen("setup");};
+  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setNavigationRequestNonce(0);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setLibraryReturnScreen(null);setError("");mapCamera.current=null;setScreen("setup");};
 
   const loadLibrary = async (page = 1) => {
-    analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setScreen("library"); setLibraryLoading(true); setError("");
+    analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setNavigationRequestNonce(0);setScreen("library"); setLibraryLoading(true); setError("");
     try { const[nextLibrary,recoverable,nextOffline]=await Promise.all([fetchAnalyses(page,12),fetchRecoverableAnalyses(),listOfflinePackages()]);setLibrary(nextLibrary);setPendingAnalyses(recoverable.items||[]);setOfflinePackages(nextOffline); }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
@@ -323,6 +365,7 @@ export default function App() {
     setSelectedWaypoint(null);
     setResultsUi(createResultsState());
     setNavigationTargetEntity(null);
+    setNavigationRequestNonce(0);
     setUserLocation(null);
     setUserLocationEnabled(false);
     setLibrary(null);
@@ -352,7 +395,7 @@ export default function App() {
   if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><AppLoadingScreen message="Restoring your analyses…" /></SafeAreaView>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
-    const generation=++analysisLoadGeneration.current;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);
+    const generation=++analysisLoadGeneration.current;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);setNavigationRequestNonce(0);
     try { setError(""); mapCamera.current=null; setScreen("opening"); setSavedAnalysisId(analysisJobId); const next=requireOpenedAnalysis(await fetchAnalysis(analysisJobId),analysisJobId);if(generation!==analysisLoadGeneration.current)return;setInitialFitAnalysisId(analysisJobId);setAnalysis(next);setResultsUi(stateForAnalysis(createResultsState(),analysisJobId));setScreen("results"); }
     catch (nextError) { if(generation!==analysisLoadGeneration.current)return;const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached?.manifest?.analysisJobId===analysisJobId&&cached.manifest.immutable?.analysis?.analysisJobId===analysisJobId) { const immutable = cached.manifest.immutable; const next=withAnalysisBoundary({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report },cached.manifest.map?.region); setInitialFitAnalysisId(analysisJobId); setAnalysis(next); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
@@ -405,7 +448,7 @@ export default function App() {
   };
 
   const submit=()=>{if(analysisNameError){setError(analysisNameError);return;}if(!quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey})){setError("Setup changed or the quote expired. Confirm acreage and price again.");invalidatePurchase();return;}setError("");setScreen("payment");};
-  const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;const completed=withAnalysisBoundary(nextAnalysis,purchase?.draft?.requestPolygon);setOfflineManifest(null);setInitialFitAnalysisId(completed.analysisJobId||null);setAnalysis(completed);setSavedAnalysisId(completed.analysisJobId||"");setResultsUi(createResultsState(completed.analysisJobId||null));setNavigationTargetEntity(null);mapCamera.current=null;setScreen("results");};
+  const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;const completed=withAnalysisBoundary(nextAnalysis,purchase?.draft?.requestPolygon);setOfflineManifest(null);setInitialFitAnalysisId(completed.analysisJobId||null);setAnalysis(completed);setSavedAnalysisId(completed.analysisJobId||"");setResultsUi(createResultsState(completed.analysisJobId||null));setNavigationTargetEntity(null);setNavigationRequestNonce(0);mapCamera.current=null;setScreen("results");};
   const resumePendingAnalysis=(nextPurchase:any)=>{setPurchase(nextPurchase);setScreen("payment");};
 
   const addLngLatPoint = (point: MapPoint) => {
@@ -413,7 +456,8 @@ export default function App() {
   };
 
   const selectResultEntity=(type:string,id:string,focus=true)=>{if(!analysis)return;const next=selectEntity(resultsUi,analysis,type,id);setResultsUi(next);const entity=selectedEntity(next,analysis);mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify({type,id:entity?.id||null,category:next.activeCategoryFilter||null,focus})});true;`);};
-  const navigateToResult=(entity:any)=>{const target=navigationTarget(entity);if(!target)return;setNavigationTargetEntity({...entity,geometry:{type:"Point",coordinates:[target.longitude,target.latitude]}});setResultsUi((current:any)=>({...current,activeResultsTab:"navigation"}));};
+  const navigateToResult=(entity:any,requestLocation=false)=>{const target=navigationTarget(entity);if(!target)return;setNavigationTargetEntity({...entity,geometry:{type:"Point",coordinates:[target.longitude,target.latitude]}});setResultsUi((current:any)=>({...current,activeResultsTab:"navigation"}));if(requestLocation)setNavigationRequestNonce((current)=>current+1);};
+  const navigateToWaypointById=(id:string)=>{const waypoint=navigableWaypointById(analysis,id);if(!waypoint)return;selectResultEntity("waypoint",waypoint.id,false);navigateToResult(waypoint,true);};
 
   const centerOnCurrentLocation = async () => {
     if (locatingUser) return;
@@ -467,6 +511,7 @@ export default function App() {
       }
       if (message.type === "map-camera" && Array.isArray(message.payload?.center)) { mapCamera.current = message.payload; if (initialFitAnalysisId) setInitialFitAnalysisId(null); }
       if (message.type === "result-select" && message.payload?.id && ["waypoint","terrainFeature"].includes(message.payload.entityType)) selectResultEntity(message.payload.entityType,message.payload.id,false);
+      if (message.type === "waypoint-navigate" && typeof message.payload?.id === "string") navigateToWaypointById(message.payload.id);
   };
 
   const renderMapControls = () => (
@@ -532,7 +577,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.container, windowWidth >= 700 && styles.containerWide]}>
+      <ScrollView ref={appScrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.container, windowWidth >= 700 && styles.containerWide]}>
         <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" accessibilityHint="Opens profile, settings, sign out, and account controls" style={({ pressed }) => [styles.gearButton, pressed && styles.buttonPressed]} onPress={() => setShowAccount(true)}><Ionicons name="settings-outline" size={24} color="#e7eee1" /></Pressable></View>
         {!!sessionMessage && <Text accessibilityLiveRegion="polite" style={styles.warningBanner}>{sessionMessage}</Text>}
         {Platform.OS === "ios" && primaryNavigation}
@@ -615,7 +660,7 @@ export default function App() {
             <Text style={styles.metric}>Waypoints: {analysis.waypoints.length}</Text>
             <View style={styles.reportPanel}><Text style={styles.sectionTitle}>{analysis.report?.title || "HTIE Report"}</Text><Text style={styles.meta}>{analysis.report?.overview || "No overview returned."}</Text><Text style={styles.sectionSubtitle}>Key Findings</Text>{(analysis.report?.keyFindings||[]).map((finding:string,index:number)=><Text key={`finding-${index}`} style={styles.meta}>• {finding}</Text>)}{analysis.report?.huntingStrategy?<><Text style={styles.sectionSubtitle}>Hunting Strategy</Text>{(Array.isArray(analysis.report.huntingStrategy)?analysis.report.huntingStrategy:[analysis.report.huntingStrategy]).map((item:string,index:number)=><Text key={`strategy-${index}`} style={styles.meta}>• {item}</Text>)}</>:null}<Text style={styles.sectionSubtitle}>Scouting Notes</Text>{(analysis.report?.scoutingNotes||[]).map((note:string,index:number)=><Text key={`scouting-${index}`} style={styles.meta}>• {note}</Text>)}<Text style={styles.sectionSubtitle}>Limitations</Text>{(analysis.report?.limitations||[]).map((item:string,index:number)=><Text key={`limitation-${index}`} style={styles.meta}>• {item}</Text>)}</View>
             {!!(analysis.analysisJobId || savedAnalysisId) && <PdfReportPanel key={analysis.analysisJobId || savedAnalysisId} analysisJobId={analysis.analysisJobId || savedAnalysisId} />}
-            <AnalysisResultsTabs analysis={analysis} analysisJobId={analysis.analysisJobId || savedAnalysisId} resultsUi={resultsUi} setResultsUi={setResultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} navigationTargetEntity={navigationTargetEntity} />
+            <AnalysisResultsTabs analysis={analysis} analysisJobId={analysis.analysisJobId || savedAnalysisId} resultsUi={resultsUi} setResultsUi={setResultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} navigationTargetEntity={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} onNavigationRequestVisible={revealNavigationPanel} />
             <View style={styles.row}>
               <ActionButton label="Open Report" onPress={() => setScreen("report")} primary />
               <ActionButton label="New Analysis" onPress={resetSetup} />

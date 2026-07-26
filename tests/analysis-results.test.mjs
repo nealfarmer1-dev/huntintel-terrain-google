@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createResultsState, entityGeometry, featureGroup, groupTerrainFeatures, navigationTarget, relatedWaypointIds, selectEntity, selectedEntity, sortResultEntities, stateForAnalysis, validGeometry } from "../src/analysis-results.js";
+import { createResultsState, entityGeometry, featureGroup, groupTerrainFeatures, navigableWaypointById, navigationTarget, relatedWaypointIds, selectEntity, selectedEntity, sortResultEntities, stateForAnalysis, validGeometry, waypointDetails } from "../src/analysis-results.js";
 
 const analysis = {
   analysisJobId: "job-b",
@@ -42,6 +42,30 @@ test("point, line, and polygon geometry validate without fabricating missing loc
   assert.equal(entityGeometry(analysis.features.at(-1)), null);
   assert.equal(navigationTarget(analysis.waypoints[0]).id, "waypoint-low");
   assert.equal(navigationTarget(analysis.waypoints[2]), null);
+});
+
+test("popup navigation resolves only an exact, real, navigable waypoint ID", () => {
+  assert.equal(navigableWaypointById(analysis, "waypoint-high")?.id, "waypoint-high");
+  assert.equal(navigableWaypointById(analysis, "waypoint-text"), null);
+  assert.equal(navigableWaypointById(analysis, "missing"), null);
+  assert.equal(navigableWaypointById(analysis, null), null);
+});
+
+test("waypoint popup and selected detail share normalized display data and fallbacks", () => {
+  assert.deepEqual(
+    waypointDetails({ id: "wp", waypointType: "North saddle", score: "78.25", confidence: .8, explanation: "Connects two travel corridors.", geometry: { type: "Point", coordinates: [-86.1, 32.1] } }),
+    {
+      eyebrow: "SELECTED WAYPOINT",
+      title: "North saddle",
+      type: "North saddle",
+      reason: "Connects two travel corridors.",
+      score: "78.3",
+      confidence: "0.80",
+      geometry: "Map geometry: Point",
+    },
+  );
+  assert.equal(waypointDetails({ properties: { definitionLabel: "Definition fallback" } }).title, "Definition fallback");
+  assert.equal(waypointDetails({ featureType: "Feature fallback" }).title, "Feature fallback");
 });
 
 test("feature grouping is deterministic and unknown types remain under Other", () => {

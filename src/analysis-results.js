@@ -53,6 +53,27 @@ export function navigationTarget(entity) {
   return geometry?.type === "Point" ? { id: String(entity.id), longitude: geometry.coordinates[0], latitude: geometry.coordinates[1] } : null;
 }
 
+export function navigableWaypointById(analysis, id) {
+  if (typeof id !== "string" || !id) return null;
+  const waypoint = (analysis?.waypoints || []).find((item) => item?.id === id);
+  return waypoint && navigationTarget(waypoint) ? waypoint : null;
+}
+
+export function waypointDetails(entity) {
+  const geometry = entityGeometry(entity);
+  const score = finite(entity?.score) ?? 0;
+  const confidence = finite(entity?.confidence) ?? 0;
+  return {
+    eyebrow: "SELECTED WAYPOINT",
+    title: entity?.title || entity?.waypointType || entity?.properties?.definitionLabel || entity?.featureType || "Untitled waypoint",
+    type: entity?.waypointType || "waypoint",
+    reason: entity?.reason || entity?.explanation || entity?.properties?.confidenceReason || "No additional reasoning was returned.",
+    score: score.toFixed(1),
+    confidence: confidence.toFixed(2),
+    geometry: geometry ? `Map geometry: ${geometry.type}` : "No map geometry is available for this result.",
+  };
+}
+
 export function featureGroup(feature) {
   const value = String(feature?.featureType || feature?.properties?.definitionKey || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
   return GROUPS.find((group) => group.id !== "other" && group.tokens.some((token) => value.includes(token))) || GROUPS.at(-1);
