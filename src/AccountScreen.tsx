@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import * as Location from "expo-location";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { accountRequest, fetchAccount, fetchStorageQuota } from "./api";
 import { clearSession, storeSession } from "./auth";
 import { listOfflinePackages } from "./offline";
@@ -9,6 +9,7 @@ import { PasswordField } from "./PasswordField";
 type Mode = "login" | "register" | "verify" | "forgot" | "reset" | "security";
 const TERMS_URL = "https://app.huntintelapp.com/legal/terms";
 const PRIVACY_URL = "https://app.huntintelapp.com/legal/privacy";
+const TERRAIN_ICON = require("../assets/images/icon.png");
 type Props = {
   user?: any;
   onAuthenticated: (user: any) => void;
@@ -27,6 +28,7 @@ function quotaCopy(quota: any) {
 }
 
 export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onReplayOrientation, onOpenDownloads, onOpenAnalyses, appVersion = "0.1.2", initialMessage = "" }: Props) {
+  const { width } = useWindowDimensions();
   const [mode, setMode] = useState<Mode>(user ? "security" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,6 +44,9 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   const [quota, setQuota] = useState<any>(null);
   const [downloadCount, setDownloadCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const logoScale = Platform.OS === "ios" ? 0.34 : 0.32;
+  const logoMaximumSize = Platform.OS === "ios" ? 152 : 144;
+  const loginLogoSize = Math.min(logoMaximumSize, Math.max(96, Math.round(width * logoScale)));
 
   useEffect(() => {
     if (!user) return;
@@ -109,6 +114,7 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   }
 
   return <SafeAreaView style={styles.safe}><KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.wrap}><View style={styles.card}>
+    {mode === "login" && <View style={styles.loginBrand}><Image accessible accessibilityLabel="HuntIntel Terrain logo" resizeMode="contain" source={TERRAIN_ICON} style={[styles.loginLogo, { width: loginLogoSize, height: loginLogoSize, borderRadius: Math.round(loginLogoSize * (Platform.OS === "ios" ? 0.22 : 0.18)) }]} /></View>}
     <Text style={styles.eyebrow}>HuntIntel Terrain</Text><Text style={styles.title}>{mode === "login" ? "Sign in" : mode === "register" ? "Create account" : mode === "verify" ? "Verify email" : mode === "forgot" ? "Forgot password" : "Reset password"}</Text>
     {["login", "register", "forgot"].includes(mode) && <TextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor="#82907e" autoCapitalize="none" keyboardType="email-address" autoComplete="email" />}
     {["login", "register"].includes(mode) && <PasswordField style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#82907e" textContentType={mode === "login" ? "password" : "newPassword"} autoComplete={mode === "login" ? "current-password" : "new-password"} />}
@@ -131,5 +137,5 @@ function Agreement({ label, linkLabel, url, checked, onChange }: any) { return <
 function Button({ label, onPress, primary, danger, disabled, loading }: any) { const inactive=Boolean(disabled||loading); return <Pressable accessibilityRole="button" accessibilityState={{ disabled: inactive, busy:Boolean(loading) }} disabled={inactive} onPress={onPress} style={({pressed})=>[styles.button, primary && styles.primary, danger && styles.danger, inactive && styles.disabled, pressed&&styles.pressed]}>{loading&&<ActivityIndicator size="small" color={primary?"#19140d":"#f5f2e9"}/>}<Text style={[styles.buttonText, primary && styles.primaryText]}>{loading?"Working…":label}</Text></Pressable>; }
 const styles = StyleSheet.create({
   safe:{flex:1,backgroundColor:"#10140f"},keyboard:{flex:1},page:{width:"100%",maxWidth:820,alignSelf:"center",padding:20,paddingBottom:44,gap:14},wrap:{flexGrow:1,justifyContent:"center",padding:22},card:{width:"100%",maxWidth:540,alignSelf:"center",gap:14,padding:24,borderRadius:Platform.OS==="ios"?24:20,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},
-  header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",gap:12},eyebrow:{color:"#d0a65d",letterSpacing:2,textTransform:"uppercase",fontSize:12},title:{color:"#f0f3ea",fontSize:28,fontWeight:"800"},section:{gap:10,padding:18,borderRadius:Platform.OS==="ios"?20:16,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},sectionTitle:{color:"#f0f3ea",fontSize:18,fontWeight:"800"},label:{color:"#d0a65d",fontSize:12,textTransform:"uppercase",marginTop:4},value:{color:"#f0f3ea",fontSize:16},input:{minHeight:48,color:"#f0f3ea",backgroundColor:"#0f140f",borderRadius:14,padding:14,borderWidth:1,borderColor:"#344333",fontSize:16},forgotPasswordLink:{alignSelf:"flex-end",minHeight:44,height:Platform.OS==="android"?48:44,justifyContent:"center",marginTop:-8},forgotPasswordText:{color:"#d0a65d",fontSize:13,fontWeight:"700"},agreements:{gap:14,paddingVertical:8},agreementsTitle:{color:"#d0a65d",fontSize:12,fontWeight:"800",letterSpacing:1.5,textTransform:"uppercase"},agreement:{gap:2},agreementToggle:{minHeight:48,flexDirection:"row",alignItems:"center",gap:12},checkbox:{width:24,height:24,borderWidth:2,borderColor:"#82907e",borderRadius:5,alignItems:"center",justifyContent:"center"},checkboxChecked:{backgroundColor:"#d0a65d",borderColor:"#d0a65d"},checkmark:{color:"#19140d",fontWeight:"900"},agreementText:{flex:1,color:"#f0f3ea",lineHeight:20},legalLink:{minHeight:48,alignSelf:"flex-start",justifyContent:"center",marginLeft:36,paddingHorizontal:4},legalLinkText:{color:"#d0a65d",fontWeight:"700",textDecorationLine:"underline"},meta:{color:"#a8b5a2",lineHeight:20},button:{minHeight:48,paddingHorizontal:16,paddingVertical:12,borderRadius:Platform.OS==="ios"?14:12,backgroundColor:"#283329",borderWidth:1,borderColor:"#3b4b3a",alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8},primary:{backgroundColor:"#d0a65d",borderColor:"#e5c682"},danger:{backgroundColor:"#9b493e",borderColor:"#bd6b5d"},disabled:{opacity:.45},pressed:{opacity:.76,transform:[{scale:.985}]},buttonText:{color:"#f5f2e9",fontWeight:"700",textAlign:"center"},primaryText:{color:"#19140d"}
+  loginBrand:{alignItems:"center",justifyContent:"center",marginBottom:2},loginLogo:{alignSelf:"center",backgroundColor:"#020706"},header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",gap:12},eyebrow:{color:"#d0a65d",letterSpacing:2,textTransform:"uppercase",fontSize:12},title:{color:"#f0f3ea",fontSize:28,fontWeight:"800"},section:{gap:10,padding:18,borderRadius:Platform.OS==="ios"?20:16,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},sectionTitle:{color:"#f0f3ea",fontSize:18,fontWeight:"800"},label:{color:"#d0a65d",fontSize:12,textTransform:"uppercase",marginTop:4},value:{color:"#f0f3ea",fontSize:16},input:{minHeight:48,color:"#f0f3ea",backgroundColor:"#0f140f",borderRadius:14,padding:14,borderWidth:1,borderColor:"#344333",fontSize:16},forgotPasswordLink:{alignSelf:"flex-end",minHeight:44,height:Platform.OS==="android"?48:44,justifyContent:"center",marginTop:-8},forgotPasswordText:{color:"#d0a65d",fontSize:13,fontWeight:"700"},agreements:{gap:14,paddingVertical:8},agreementsTitle:{color:"#d0a65d",fontSize:12,fontWeight:"800",letterSpacing:1.5,textTransform:"uppercase"},agreement:{gap:2},agreementToggle:{minHeight:48,flexDirection:"row",alignItems:"center",gap:12},checkbox:{width:24,height:24,borderWidth:2,borderColor:"#82907e",borderRadius:5,alignItems:"center",justifyContent:"center"},checkboxChecked:{backgroundColor:"#d0a65d",borderColor:"#d0a65d"},checkmark:{color:"#19140d",fontWeight:"900"},agreementText:{flex:1,color:"#f0f3ea",lineHeight:20},legalLink:{minHeight:48,alignSelf:"flex-start",justifyContent:"center",marginLeft:36,paddingHorizontal:4},legalLinkText:{color:"#d0a65d",fontWeight:"700",textDecorationLine:"underline"},meta:{color:"#a8b5a2",lineHeight:20},button:{minHeight:48,paddingHorizontal:16,paddingVertical:12,borderRadius:Platform.OS==="ios"?14:12,backgroundColor:"#283329",borderWidth:1,borderColor:"#3b4b3a",alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8},primary:{backgroundColor:"#d0a65d",borderColor:"#e5c682"},danger:{backgroundColor:"#9b493e",borderColor:"#bd6b5d"},disabled:{opacity:.45},pressed:{opacity:.76,transform:[{scale:.985}]},buttonText:{color:"#f5f2e9",fontWeight:"700",textAlign:"center"},primaryText:{color:"#19140d"}
 });
