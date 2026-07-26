@@ -9,6 +9,8 @@ test("login screen renders the bundled Terrain icon responsively", async () => {
   assert.match(account, /useWindowDimensions\(\)/);
   assert.match(account, /mode === "login".*<Image/);
   assert.match(account, /accessibilityLabel="HuntIntel Terrain logo"/);
+  assert.match(account, /styles\.loginEyebrow\]}>HuntIntel Terrain<\/Text>/);
+  assert.match(account, /loginEyebrow:\{alignSelf:"stretch",textAlign:"center"\}/);
   assert.match(account, /Math\.min\(logoMaximumSize, Math\.max\(96,/);
   assert.match(account, /Platform\.OS === "ios" \? 152 : 144/);
 });
