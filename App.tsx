@@ -3,7 +3,6 @@ import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import * as Location from "expo-location";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { WebView } from "react-native-webview";
 import {
   ActivityIndicator,
   Alert,
@@ -48,6 +47,8 @@ import { loadPaymentRecoveryHint } from "./src/payment-recovery";
 import { restoreSession } from "./src/auth";
 import { AppLoadingScreen, ErrorState, LayerSheet } from "./src/NativeUi";
 import { LOCATION_PERMISSION_MESSAGE, LOCATION_UNAVAILABLE_MESSAGE, acquireCenterLocation, centerLocationJavaScript } from "./src/location-control";
+import { NativeTerrainMap, TerrainMapErrorBoundary } from "./src/NativeTerrainMap";
+import { safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } from "./src/map-runtime";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -169,8 +170,7 @@ export default function App() {
   const [layerPreferences, setLayerPreferences] = useState<any>(DEFAULT_LAYER_PREFERENCES);
   const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
   const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [mapError, setMapError] = useState("");
-  const [mapRetryKey, setMapRetryKey] = useState(0);
+  const [mapBuildAttempt, setMapBuildAttempt] = useState(0);
   const [layerSheetVisible, setLayerSheetVisible] = useState(false);
   const [homeSummary, setHomeSummary] = useState<any>(null);
   const [homeError, setHomeError] = useState("");
@@ -185,8 +185,13 @@ export default function App() {
   const currentSetupKey=useMemo(()=>setupConfigurationKey({analysisName,analysisMode,propertyId:null,polygon}),[analysisName,analysisMode,polygon]);
   const quoteCurrent=quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey});
   const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid:Boolean(polygon&&isValid),quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
-  const mapHtml=useMemo(()=>{const nextPolygon=analysis?analysis.requestPolygon:polygon;return buildMapHtml({token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup"&&!analysis,userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)});},[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,mapRetryKey]);
-  const mapSource=useMemo(()=>mapHtml?{html:mapHtml}:null,[mapHtml]);
+  const mapSourceResult=useMemo(()=>{
+    if (!HAS_MAPBOX_ACCESS_TOKEN) return {ok:false,source:null,code:"MAP_CONFIG_UNAVAILABLE",userMessage:TERRAIN_MAP_FAILURE_MESSAGE};
+    const usingOfflinePackage=offlineManifest?.analysisJobId===analysis?.analysisJobId;
+    if(usingOfflinePackage)return safeBuildMapSource(()=>renderOfflineMapHtml(offlineManifest),null,{platform:Platform.OS,setupActive:screen==="setup"});
+    const nextPolygon=analysis?analysis.requestPolygon:polygon;
+    return safeBuildMapSource(buildMapHtml,{token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup"&&!analysis,userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)},{platform:Platform.OS,setupActive:screen==="setup"});
+  },[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,offlineManifest,mapBuildAttempt]);
   const mapHeight = Math.max(320, Math.min(520, Math.round(windowHeight * .52)));
   const refreshLocationPermission = useCallback(async () => {
     try {
@@ -250,14 +255,6 @@ export default function App() {
     }
   }, []);
   useEffect(() => { if (account) void loadHomeSummary(); }, [account, loadHomeSummary]);
-  useEffect(() => {
-    if (mapStatus !== "loading") return;
-    const timeout = setTimeout(() => {
-      setMapStatus("error");
-      setMapError("The map could not be loaded. Check your connection and try again.");
-    }, 12000);
-    return () => clearTimeout(timeout);
-  }, [mapStatus, mapRetryKey]);
   useEffect(() => {
     if (Platform.OS !== "android") return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -439,9 +436,7 @@ export default function App() {
     }
   };
 
-  const handleMapMessage = (event: any) => {
-    try {
-      const message = JSON.parse(event.nativeEvent.data);
+  const handleMapMessage = (message: any) => {
       if (message.type === "map-click" && typeof message.payload?.longitude === "number" && typeof message.payload?.latitude === "number") {
         addLngLatPoint(message.payload);
       }
@@ -453,12 +448,7 @@ export default function App() {
         setUserLocation(null);
         setUserLocationEnabled(false);
       }
-      if (message.type === "map-error") {
-        setMapStatus("error");
-        setMapError("The map could not be loaded. Check your connection and try again.");
-      }
       if (message.type === "map-ready") {
-        setMapStatus("ready");
         if (pendingLocationCenter.current) {
           mapWebRef.current?.injectJavaScript(centerLocationJavaScript(pendingLocationCenter.current));
           pendingLocationCenter.current = null;
@@ -466,9 +456,6 @@ export default function App() {
       }
       if (message.type === "map-camera" && Array.isArray(message.payload?.center)) { mapCamera.current = message.payload; if (initialFitAnalysisId) setInitialFitAnalysisId(null); }
       if (message.type === "result-select" && message.payload?.id && ["waypoint","terrainFeature"].includes(message.payload.entityType)) selectResultEntity(message.payload.entityType,message.payload.id,false);
-    } catch {
-      // Ignore non-HuntIntel WebView messages.
-    }
   };
 
   const renderMapControls = () => (
@@ -492,26 +479,8 @@ export default function App() {
   );
 
   const renderMap = () => {
-    if (!HAS_MAPBOX_ACCESS_TOKEN) return <ErrorState message="Map configuration is unavailable. Install a build configured with EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN." />;
     const usingOfflinePackage = offlineManifest?.analysisJobId===analysis?.analysisJobId;
-    const source = usingOfflinePackage ? { html: renderOfflineMapHtml(offlineManifest) } : mapSource!;
-    return <View style={[styles.mapWeb, { height: mapHeight }]}>
-      <WebView
-        key={`terrain-map-${mapRetryKey}`}
-        originWhitelist={["*"]}
-        geolocationEnabled
-        ref={mapWebRef}
-        source={source}
-        onLoadStart={() => { setMapStatus("loading"); setMapError(""); }}
-        onLoadEnd={() => { if (usingOfflinePackage) setMapStatus("ready"); }}
-        onError={() => { setMapStatus("error"); setMapError("The map could not be loaded. Check your connection and try again."); }}
-        onHttpError={() => { setMapStatus("error"); setMapError("The map service returned an error. Please try again."); }}
-        onMessage={handleMapMessage}
-        style={styles.webView}
-      />
-      {mapStatus === "loading" && <View pointerEvents="none" style={styles.mapState}><ActivityIndicator color="#d0a65d" /><Text style={styles.meta}>Loading map…</Text></View>}
-      {mapStatus === "error" && <View style={styles.mapState}><Text style={styles.error}>{mapError}</Text><ActionButton label="Retry Map" primary onPress={() => { setMapStatus("loading"); setMapRetryKey((value) => value + 1); }} /></View>}
-      <Pressable
+    const locationControl = <Pressable
         accessibilityRole="button"
         accessibilityLabel="Center map on current location"
         accessibilityState={{ selected: userLocationEnabled, busy: locatingUser, disabled: locatingUser }}
@@ -523,8 +492,10 @@ export default function App() {
         {locatingUser
           ? <ActivityIndicator color={userLocationEnabled ? "#091008" : "#f0f3ea"} />
           : <Ionicons name={userLocationEnabled ? "locate" : "locate-outline"} size={24} color={userLocationEnabled ? "#091008" : "#f0f3ea"} />}
-      </Pressable>
-    </View>;
+      </Pressable>;
+    return <TerrainMapErrorBoundary resetKey={`${screen}:${analysis?.analysisJobId||"setup"}`} onBack={() => setScreen("home")}>
+      <NativeTerrainMap sourceResult={mapSourceResult} height={mapHeight} mapRef={mapWebRef} onMessage={handleMapMessage} onStatusChange={setMapStatus} onBack={() => setScreen("home")} onRetrySource={() => setMapBuildAttempt((value) => value + 1)} offline={usingOfflinePackage} showLocationControl locationControl={locationControl} />
+    </TerrainMapErrorBoundary>;
   };
 
   const waypointCards = sortWaypoints(analysis?.waypoints || []);

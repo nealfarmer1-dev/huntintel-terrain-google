@@ -40,9 +40,10 @@ test("protected request headers preserve authorization alongside request-specifi
 });
 
 test("native production UI hides infrastructure and raw analysis controls", async () => {
-  const [app, sar] = await Promise.all([
+  const [app, sar, map] = await Promise.all([
     readFile(new URL("../App.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/SarScreen.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/NativeTerrainMap.tsx", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(app, /API gateway:/);
   assert.doesNotMatch(app, /label="Sample Polygon"/);
@@ -50,7 +51,7 @@ test("native production UI hides infrastructure and raw analysis controls", asyn
   assert.match(app, /label="New Analysis"/);
   assert.match(app, /LayerSheet/);
   assert.match(app, /map-ready/);
-  assert.match(app, /setTimeout\(\(\) =>/);
+  assert.match(map, /setTimeout\(\(\) =>/);
   assert.match(app, /const authenticationFailed = nextError\?\.status === 401/);
   assert.match(app, /Usage and map-layer information could not be refreshed/);
   assert.match(sar, /__DEV__&&/);
