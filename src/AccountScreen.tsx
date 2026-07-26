@@ -122,8 +122,8 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
 
   if (mode === "security") {
     const displayName = [user?.first_name || user?.firstName, user?.last_name || user?.lastName].filter(Boolean).join(" ") || "HuntIntel member";
-    return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.page}>
-      <View style={styles.header}><View><Text style={styles.eyebrow}>HuntIntel Terrain Intelligence</Text><Text style={styles.title}>Account</Text></View>{onClose && <Button label="Done" accessibilityLabel="Close Account and return to Terrain" onPress={onClose} />}</View>
+    return <SafeAreaView style={styles.safe}><ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.page}>
+      <View style={styles.header}><View><Text style={styles.eyebrow}>HuntIntel Terrain Intelligence</Text><Text style={styles.title}>Account</Text></View>{onClose && <Button label={Platform.OS === "ios" ? "Done" : "Back"} accessibilityLabel="Close Account and return to Terrain" onPress={onClose} />}</View>
       <Section title="Profile"><Text style={styles.value}>{displayName}</Text><Text style={styles.label}>Email</Text><Text style={styles.value}>{user?.email || "Verified HuntIntel account"}</Text></Section>
       <Section title="Storage usage"><Text style={styles.value}>{quotaCopy(quota)}</Text><Text style={styles.meta}>Attachment storage shared by your HuntIntel account.</Text></Section>
       <Section title="Terrain Library"><Button label={`Downloads (${downloadCount})`} onPress={onOpenDownloads} /><Button label="My Analyses" onPress={onOpenAnalyses} /></Section>

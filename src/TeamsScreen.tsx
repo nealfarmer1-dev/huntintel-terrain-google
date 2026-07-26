@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { createTeam, fetchAnalyses, fetchTeamInvitations, fetchTeamMembers, fetchTeams, inviteTeamMember, removeTeamMember, respondTeamInvitation, revokeTeamAnalysis, shareAnalysisWithTeam, updateTeamMemberRole } from "./api";
 import { EmptyState, PrimaryButton, SecondaryButton, StatusBanner } from "./NativeUi";
 
@@ -56,7 +56,7 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
   return <View style={s.page}>
     <View style={s.header}>
       <View style={s.headerText}><Text style={s.eyebrow}>COLLABORATION</Text><Text style={s.title}>Teams</Text><Text style={s.meta}>Invite verified members, manage roles, and share saved analyses.</Text></View>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close Teams" onPress={onClose} style={({ pressed }) => [s.close, pressed && s.pressed]}><Ionicons name="close" size={24} color="#f0f3ea" /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "ios" ? "Close Teams" : "Back to Home"} accessibilityHint="Returns to the Terrain home screen" onPress={onClose} style={({ pressed }) => [s.close, pressed && s.pressed]}><Ionicons name={Platform.OS === "ios" ? "close" : "arrow-back"} size={24} color="#f0f3ea" /></Pressable>
     </View>
 
     {loading && <View style={s.loading} accessibilityRole="progressbar"><ActivityIndicator color="#d0a65d" /><Text style={s.meta}>Loading teams…</Text></View>}
@@ -69,14 +69,14 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
         <Text style={s.sectionTitle}>Create a team</Text>
         <Text style={s.meta}>Give your collaboration space a clear field-ready name.</Text>
         <TextInput accessibilityLabel="Team name" style={s.input} value={name} onChangeText={setName} placeholder="Team name" placeholderTextColor="#7f8d7a" maxLength={120} />
-        <PrimaryButton label="Create Team" loading={busy === "create"} disabled={!name.trim()} onPress={() => run("create", async () => { await createTeam({ name: name.trim() }); setName(""); await load(); }, "Team created.")} />
+        <PrimaryButton label="Create Team" loadingLabel="Creating team…" loading={busy === "create"} disabled={!name.trim()} onPress={() => run("create", async () => { await createTeam({ name: name.trim() }); setName(""); await load(); }, "Team created.")} />
       </View>
 
       {!!invites.length && <View style={s.section}>
         <Text style={s.sectionTitle}>Invitations</Text>
         {invites.map((invite) => <View key={invite.id} style={s.listRow}>
           <View style={s.flex}><Text style={s.itemTitle}>{invite.teamName || invite.team_name}</Text><Text style={s.meta}>{invite.role} access</Text></View>
-          <View style={s.row}><PrimaryButton label="Accept" loading={busy === `accept-${invite.id}`} onPress={() => run(`accept-${invite.id}`, async () => { await respondTeamInvitation(invite.id, "accept"); await load(); })} /><SecondaryButton label="Decline" onPress={() => run(`decline-${invite.id}`, async () => { await respondTeamInvitation(invite.id, "decline"); await load(); })} /></View>
+          <View style={s.row}><PrimaryButton label="Accept" loadingLabel="Accepting…" loading={busy === `accept-${invite.id}`} onPress={() => run(`accept-${invite.id}`, async () => { await respondTeamInvitation(invite.id, "accept"); await load(); })} /><SecondaryButton label="Decline" onPress={() => run(`decline-${invite.id}`, async () => { await respondTeamInvitation(invite.id, "decline"); await load(); })} /></View>
         </View>)}
       </View>}
 
@@ -90,7 +90,7 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
         <View style={s.section}>
           <Text style={s.sectionTitle}>Invite to {selected.name}</Text>
           <TextInput accessibilityLabel="Verified HuntIntel email" style={s.input} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Verified HuntIntel email" placeholderTextColor="#7f8d7a" />
-          <PrimaryButton label="Invite Viewer" loading={busy === "invite"} disabled={!email.trim()} onPress={() => run("invite", async () => { const result = await inviteTeamMember(selected.id, { email: email.trim(), role: "viewer" }); setEmail(""); setMessage(result.emailSent ? "Invitation sent." : "Invitation created. Email delivery is not currently available."); })} />
+          <PrimaryButton label="Invite Viewer" loadingLabel="Sending invitation…" loading={busy === "invite"} disabled={!email.trim()} onPress={() => run("invite", async () => { const result = await inviteTeamMember(selected.id, { email: email.trim(), role: "viewer" }); setEmail(""); setMessage(result.emailSent ? "Invitation sent." : "Invitation created. Email delivery is not currently available."); })} />
         </View>
 
         <View style={s.section}>

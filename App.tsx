@@ -185,6 +185,17 @@ export default function App() {
   const currentSetupKey=useMemo(()=>setupConfigurationKey({analysisName,analysisMode,propertyId:null,polygon}),[analysisName,analysisMode,polygon]);
   const quoteCurrent=quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey});
   const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid:Boolean(polygon&&isValid),quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
+  const setupGuidance=analysisNameError
+    ? "Step 1: enter an analysis name to continue."
+    : !polygon
+      ? "Step 2: add at least three points on the map."
+      : !isValid
+        ? `Step 2: select between ${MIN_ACRES.toLocaleString()} and ${MAX_ACRES.toLocaleString()} acres.`
+        : setupPhase==="quote_stale"
+          ? "Your setup changed. Confirm acreage and price again."
+          : setupPhase==="quoted"
+            ? "Acreage and price are confirmed. Analyze Terrain is ready."
+            : "Step 3: confirm server acreage and price.";
   const mapSourceResult=useMemo(()=>{
     if (!HAS_MAPBOX_ACCESS_TOKEN) return {ok:false,source:null,code:"MAP_CONFIG_UNAVAILABLE",userMessage:TERRAIN_MAP_FAILURE_MESSAGE};
     const usingOfflinePackage=offlineManifest?.analysisJobId===analysis?.analysisJobId;
@@ -493,10 +504,17 @@ export default function App() {
           ? <ActivityIndicator color={userLocationEnabled ? "#091008" : "#f0f3ea"} />
           : <Ionicons name={userLocationEnabled ? "locate" : "locate-outline"} size={24} color={userLocationEnabled ? "#091008" : "#f0f3ea"} />}
       </Pressable>;
-    return <TerrainMapErrorBoundary resetKey={`${screen}:${analysis?.analysisJobId||"setup"}`} onBack={() => setScreen("home")}>
+    return <TerrainMapErrorBoundary resetKey={`${screen}:${analysis?.analysisJobId||"setup"}`} height={mapHeight} onBack={() => setScreen("home")}>
       <NativeTerrainMap sourceResult={mapSourceResult} height={mapHeight} mapRef={mapWebRef} onMessage={handleMapMessage} onStatusChange={setMapStatus} onBack={() => setScreen("home")} onRetrySource={() => setMapBuildAttempt((value) => value + 1)} offline={usingOfflinePackage} showLocationControl locationControl={locationControl} />
     </TerrainMapErrorBoundary>;
   };
+
+  const primaryNavigation = <View accessibilityRole="tablist" style={[styles.navBar, Platform.OS === "android" && styles.androidNavBar]}>
+    <NavButton icon="home-outline" label="Home" onPress={() => setScreen("home")} selected={screen === "home"} />
+    <NavButton icon="add-circle-outline" label="New" onPress={resetSetup} selected={screen === "setup"} />
+    <NavButton icon="folder-open-outline" label="Analyses" onPress={() => loadLibrary(1)} selected={screen === "library"} />
+    <NavButton icon="people-outline" label="Teams" onPress={() => setScreen("teams")} selected={screen === "teams"} />
+  </View>;
 
   const waypointCards = sortWaypoints(analysis?.waypoints || []);
   const analysisDate = analysis?.completedAt || analysis?.createdAt || null;
@@ -515,14 +533,9 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.container, windowWidth >= 700 && styles.containerWide]}>
-        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" style={({ pressed }) => [styles.gearButton, pressed && styles.buttonPressed]} onPress={() => setShowAccount(true)}><Text style={styles.gearText}>⚙︎</Text></Pressable></View>
+        <View style={styles.appHeader}><View style={styles.headerText}><Text style={styles.eyebrow}>HuntIntel</Text><Text style={styles.title}>Terrain Intelligence</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open Account" accessibilityHint="Opens profile, settings, sign out, and account controls" style={({ pressed }) => [styles.gearButton, pressed && styles.buttonPressed]} onPress={() => setShowAccount(true)}><Ionicons name="settings-outline" size={24} color="#e7eee1" /></Pressable></View>
         {!!sessionMessage && <Text accessibilityLiveRegion="polite" style={styles.warningBanner}>{sessionMessage}</Text>}
-        <View style={styles.navBar}>
-          <NavButton icon="home-outline" label="Home" onPress={() => setScreen("home")} selected={screen === "home"} />
-          <NavButton icon="add-circle-outline" label="New" onPress={resetSetup} selected={screen === "setup"} />
-          <NavButton icon="folder-open-outline" label="Analyses" onPress={() => loadLibrary(1)} selected={screen === "library"} />
-          <NavButton icon="people-outline" label="Teams" onPress={() => setScreen("teams")} selected={screen === "teams"} />
-        </View>
+        {Platform.OS === "ios" && primaryNavigation}
 
         {screen === "home" && <View style={styles.dashboard}>
           <View style={styles.heroIcon}><Ionicons name="map-outline" size={26} color="#d0a65d" /></View>
@@ -546,39 +559,47 @@ export default function App() {
         {screen === "setup" && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>New Analysis</Text>
-            <Text style={styles.meta}>Create terrain features, waypoints, relationships, and a deterministic HTIE report.</Text>
+            <Text style={styles.meta}>Name and mode → Draw area → Confirm acreage and price → Analyze Terrain</Text>
             <View style={styles.stepHeader}><Text style={styles.stepNumber}>1</Text><Text style={styles.stepTitle}>Name and mode</Text></View>
-            <TextInput style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Enter Analysis Name" placeholderTextColor="#7f8d7a" maxLength={120} />
-            {analysisNameError ? <Text style={styles.error}>{analysisNameError}</Text> : null}
+            <TextInput accessibilityLabel="Analysis name" accessibilityHint="Names this saved terrain analysis" style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Enter analysis name" placeholderTextColor="#7f8d7a" maxLength={120} returnKeyType="done" />
+            {analysisNameError ? <Text accessibilityRole="alert" style={styles.error}>{analysisNameError}</Text> : null}
             <Text style={styles.meta}>Analysis mode: {analysisModeLabel(analysisMode)}</Text>
             <View style={styles.row}>
               {ANALYSIS_MODE_OPTIONS.map((option) => (
                 <ActionButton
                   key={option.value}
                   label={option.label}
+                  accessibilityHint={`Sets analysis mode to ${option.label}`}
                   onPress={() => {invalidatePurchase();setAnalysisMode(option.value)}}
                   primary={analysisMode === option.value}
                 />
               ))}
             </View>
             <View style={styles.stepHeader}><Text style={styles.stepNumber}>2</Text><Text style={styles.stepTitle}>Draw the analysis area</Text></View>
+            <Text style={styles.meta}>Tap the map to place boundary points. Use Undo Point or Clear to correct the shape.</Text>
             {renderMap()}
             <View style={styles.mapActions}><ActionButton label="Layers" onPress={() => setLayerSheetVisible(true)} /><ActionButton label="Undo Point" disabled={!points.length} onPress={() => { invalidatePurchase(); setPoints((current) => current.slice(0, -1)); }} /><ActionButton label="Clear" disabled={!points.length} onPress={() => {invalidatePurchase();setPoints([])}} /></View>
-            <Text style={[styles.meta, isValid ? styles.success : styles.error]}>{polygon ? `${acreage.toLocaleString()} acres selected` : "Tap the map to add at least three boundary points."}</Text>
+            <Text accessibilityLiveRegion="polite" style={[styles.selectionStatus, isValid ? styles.success : styles.error]}>{polygon ? `${acreage.toLocaleString()} acres selected${isValid ? " — valid area" : ` — select ${MIN_ACRES.toLocaleString()} to ${MAX_ACRES.toLocaleString()} acres`}` : "No valid boundary yet. Add at least three boundary points."}</Text>
             <View style={styles.stepHeader}><Text style={styles.stepNumber}>3</Text><Text style={styles.stepTitle}>Review acreage and price</Text></View>
             {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
-            <ActionButton label="Confirm Acreage & Price" loading={quoteLoading} onPress={requestQuote} disabled={!new Set(["ready_for_quote","quoted","quote_stale"]).has(setupPhase)} />
-            <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} />
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {setupPhase==="quote_stale" && <Text accessibilityLiveRegion="polite" style={styles.staleNotice}>Setup changed. Confirm acreage and price again.</Text>}
+            <ActionButton label={setupPhase==="quoted"?"Acreage & Price Confirmed":"Confirm Acreage & Price"} loadingLabel="Checking acreage and price…" loading={quoteLoading} onPress={requestQuote} disabled={!new Set(["ready_for_quote","quote_stale"]).has(setupPhase)} accessibilityHint="Requests the exact acreage and price from the server" />
+            <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} accessibilityHint={setupPhase==="quoted" ? "Continues to the one-time purchase flow" : setupGuidance} />
+            <Text accessibilityLiveRegion="polite" style={setupPhase==="quoted" ? styles.success : styles.meta}>{setupGuidance}</Text>
+            {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           </View>
         )}
 
         {screen==="payment"&&purchase&&<PaymentGate initial={purchase} onComplete={completePaidAnalysis} onBack={()=>setScreen("setup")} onQuoteInvalid={()=>{invalidatePurchase();setScreen("setup")}} onPurchaseChange={setPurchase} onLibraryLimit={()=>{setLibraryReturnScreen("payment");void loadLibrary(1)}}/>}
 
         {screen === "processing" && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Processing</Text>
-            <Text style={styles.meta}>HTIE is generating features, relationships, waypoints, and a deterministic report.</Text>
+          <View style={[styles.card, styles.processingCard]}>
+            <ActivityIndicator accessibilityRole="progressbar" accessibilityLabel="Terrain analysis is running" size="large" color="#d0a65d" />
+            <Text style={styles.eyebrow}>ANALYSIS RUNNING</Text>
+            <Text style={styles.sectionTitle}>Building your terrain analysis</Text>
+            <Text style={styles.meta}>HTIE is generating features, relationships, waypoints, and a deterministic report. This may take several minutes.</Text>
+            <Text style={styles.meta}>You can leave this screen. Confirmed work can be resumed from My Analyses if the app closes.</Text>
+            <ActionButton label="View My Analyses" onPress={() => { void loadLibrary(1); }} />
           </View>
         )}
 
@@ -634,6 +655,7 @@ export default function App() {
           </View>
         )}
       </ScrollView>
+      {Platform.OS === "android" && primaryNavigation}
       </KeyboardAvoidingView>
       <LayerSheet visible={layerSheetVisible} onClose={() => setLayerSheetVisible(false)}>{renderMapControls()}</LayerSheet>
       {orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}
@@ -647,18 +669,22 @@ function ActionButton({
   primary = false,
   disabled = false,
   loading = false,
+  loadingLabel = "Working…",
+  accessibilityHint,
 }: {
   label: string;
   onPress: () => void;
   primary?: boolean;
   disabled?: boolean;
   loading?: boolean;
+  loadingLabel?: string;
+  accessibilityHint?: string;
 }) {
   const inactive = disabled || loading;
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ disabled: inactive, selected: primary, busy: loading }} style={({ pressed }) => [styles.button, primary && styles.buttonPrimary, inactive && styles.buttonDisabled, pressed && styles.buttonPressed]} onPress={onPress} disabled={inactive}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={accessibilityHint} accessibilityState={{ disabled: inactive, selected: primary, busy: loading }} style={({ pressed }) => [styles.button, primary && styles.buttonPrimary, inactive && styles.buttonDisabled, pressed && styles.buttonPressed]} onPress={onPress} disabled={inactive}>
       {loading && <ActivityIndicator size="small" color={primary ? "#1f180f" : "#f0f3ea"} />}
-      <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{loading ? "Working…" : label}</Text>
+      <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{loading ? loadingLabel : label}</Text>
     </Pressable>
   );
 }
@@ -685,14 +711,13 @@ const styles = StyleSheet.create({
   keyboard: { flex: 1 },
   container: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === "android" ? 18 : 40,
     gap: 16,
     backgroundColor: "#10140f",
   },
   appHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerText: { flex: 1, gap: 4 },
   gearButton: { width: 48, height: 48, borderRadius: 14, backgroundColor: "#1b2518", borderWidth: 1, borderColor: "#31412d", alignItems: "center", justifyContent: "center" },
-  gearText: { color: "#e7eee1", fontSize: 24 },
   eyebrow: {
     color: "#d0a65d",
     textTransform: "uppercase",
@@ -714,6 +739,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   navBar: { flexDirection: "row", gap: 6, padding: 5, borderRadius: 18, backgroundColor: "#151d16", borderWidth: 1, borderColor: "#2d3b2d" },
+  androidNavBar: { marginHorizontal: 10, marginTop: 6, marginBottom: 8, borderRadius: 16, elevation: 8 },
   navItem: { flex: 1, minWidth: 58, minHeight: 54, borderRadius: Platform.OS === "ios" ? 14 : 12, alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 4 },
   navItemSelected: { backgroundColor: "#d0a65d" },
   navLabel: { color: "#b9c4b4", fontSize: 11, fontWeight: "800" },
@@ -787,6 +813,9 @@ const styles = StyleSheet.create({
   stepHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
   stepNumber: { width: 28, height: 28, borderRadius: 14, textAlign: "center", textAlignVertical: "center", lineHeight: 28, color: "#19140d", backgroundColor: "#d0a65d", fontWeight: "900" },
   stepTitle: { color: "#f0f3ea", fontSize: 17, fontWeight: "800" },
+  selectionStatus: { lineHeight: 21, fontWeight: "700", padding: 12, borderRadius: 12, backgroundColor: "#101610" },
+  staleNotice: { color: "#f0d293", lineHeight: 20, padding: 12, borderRadius: 12, backgroundColor: "#332a1d", borderWidth: 1, borderColor: "#5c4c31" },
+  processingCard: { minHeight: 300, alignItems: "center", justifyContent: "center", padding: 24 },
   mapWeb: {
     height: MAP_HEIGHT,
     borderRadius: 18,

@@ -22,7 +22,7 @@ test("first launch, skip, finish, replay, and persistence share one durable orie
 });
 
 test("single gear navigates to the organized Account page", () => {
-  assert.match(app, /accessibilityLabel="Open Account"[\s\S]*⚙︎/);
+  assert.match(app, /accessibilityLabel="Open Account"[\s\S]*name="settings-outline"/);
   assert.doesNotMatch(app, /Account & Security/);
   for (const label of ["Profile", "Email", "Storage usage", "Replay Orientation", "Downloads", "My Analyses", "Sign Out", "About HuntIntel Terrain Intelligence", "App Version", "Subscription"]) assert.match(account, new RegExp(label));
   assert.match(app, /onOpenDownloads/); assert.match(app, /onOpenAnalyses/);

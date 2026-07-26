@@ -7,7 +7,9 @@ type ButtonProps = {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
+  loadingLabel?: string;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
 };
 
 export const nativeTheme = {
@@ -31,10 +33,10 @@ export function AppLoadingScreen({ message = "Restoring your secure HuntIntel se
   </View>;
 }
 
-export function ErrorState({ message, onRetry, onCancel }: { message: string; onRetry?: () => void; onCancel?: () => void }) {
+export function ErrorState({ message, title = "Unable to continue", onRetry, onCancel }: { message: string; title?: string; onRetry?: () => void; onCancel?: () => void }) {
   return <View style={styles.state} accessibilityRole="alert">
     <View style={[styles.stateIcon, styles.errorIcon]}><Ionicons name="alert-circle-outline" size={26} color={nativeTheme.danger} /></View>
-    <Text style={styles.stateTitle}>Something went wrong</Text>
+    <Text style={styles.stateTitle}>{title}</Text>
     <Text style={styles.message}>{message}</Text>
     <View style={styles.actionRow}>{onRetry && <PrimaryButton label="Try Again" onPress={onRetry} />}{onCancel && <SecondaryButton label="Cancel" onPress={onCancel} />}</View>
   </View>;
@@ -49,28 +51,28 @@ export function EmptyState({ title, message, actionLabel, onAction }: { title: s
   </View>;
 }
 
-function ButtonContent({ label, loading, color }: { label: string; loading?: boolean; color: string }) {
-  return <View style={styles.buttonContent}>{loading && <ActivityIndicator size="small" color={color} />}<Text style={[styles.buttonText, { color }]}>{loading ? "Working…" : label}</Text></View>;
+function ButtonContent({ label, loading, loadingLabel, color }: { label: string; loading?: boolean; loadingLabel?: string; color: string }) {
+  return <View style={styles.buttonContent}>{loading && <ActivityIndicator size="small" color={color} />}<Text style={[styles.buttonText, { color }]}>{loading ? loadingLabel || `${label}…` : label}</Text></View>;
 }
 
-export function PrimaryButton({ label, onPress, disabled = false, loading = false, accessibilityLabel }: ButtonProps) {
+export function PrimaryButton({ label, onPress, disabled = false, loading = false, loadingLabel, accessibilityLabel, accessibilityHint }: ButtonProps) {
   const inactive = disabled || loading;
-  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ disabled: inactive, busy: loading }} disabled={inactive} onPress={onPress} style={({ pressed }) => [styles.button, styles.primary, inactive && styles.disabled, pressed && styles.pressed]}>
-    <ButtonContent label={label} loading={loading} color="#19140d" />
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityHint={accessibilityHint} accessibilityState={{ disabled: inactive, busy: loading }} disabled={inactive} onPress={onPress} style={({ pressed }) => [styles.button, styles.primary, inactive && styles.disabled, pressed && styles.pressed]}>
+    <ButtonContent label={label} loading={loading} loadingLabel={loadingLabel} color="#19140d" />
   </Pressable>;
 }
 
-export function SecondaryButton({ label, onPress, disabled = false, loading = false, accessibilityLabel }: ButtonProps) {
+export function SecondaryButton({ label, onPress, disabled = false, loading = false, loadingLabel, accessibilityLabel, accessibilityHint }: ButtonProps) {
   const inactive = disabled || loading;
-  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ disabled: inactive, busy: loading }} disabled={inactive} onPress={onPress} style={({ pressed }) => [styles.button, inactive && styles.disabled, pressed && styles.pressed]}>
-    <ButtonContent label={label} loading={loading} color={nativeTheme.text} />
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityHint={accessibilityHint} accessibilityState={{ disabled: inactive, busy: loading }} disabled={inactive} onPress={onPress} style={({ pressed }) => [styles.button, inactive && styles.disabled, pressed && styles.pressed]}>
+    <ButtonContent label={label} loading={loading} loadingLabel={loadingLabel} color={nativeTheme.text} />
   </Pressable>;
 }
 
-export function DestructiveButton({ label, onPress, disabled = false, loading = false }: ButtonProps) {
+export function DestructiveButton({ label, onPress, disabled = false, loading = false, loadingLabel }: ButtonProps) {
   const inactive = disabled || loading;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: inactive, busy: loading }} disabled={inactive} onPress={onPress} style={({ pressed }) => [styles.button, styles.destructive, inactive && styles.disabled, pressed && styles.pressed]}>
-    <ButtonContent label={label} loading={loading} color="#fff8f5" />
+    <ButtonContent label={label} loading={loading} loadingLabel={loadingLabel} color="#fff8f5" />
   </Pressable>;
 }
 

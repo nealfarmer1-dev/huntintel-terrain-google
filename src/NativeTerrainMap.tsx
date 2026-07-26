@@ -20,7 +20,7 @@ function MapFailureCard({ message = TERRAIN_MAP_FAILURE_MESSAGE, retrying = fals
   </View>;
 }
 
-export class TerrainMapErrorBoundary extends Component<{ children: React.ReactNode; onBack: () => void; resetKey: string }, { failed: boolean; retry: number }> {
+export class TerrainMapErrorBoundary extends Component<{ children: React.ReactNode; onBack: () => void; resetKey: string; height?: number }, { failed: boolean; retry: number }> {
   state = { failed: false, retry: 0 };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch() {
@@ -34,7 +34,7 @@ export class TerrainMapErrorBoundary extends Component<{ children: React.ReactNo
     this.setState((state) => ({ failed: false, retry: state.retry + 1 }));
   };
   render() {
-    if (this.state.failed) return <MapFailureCard onRetry={this.retry} onBack={this.props.onBack} />;
+    if (this.state.failed) return <View style={[styles.map, this.props.height ? { height: this.props.height } : null]}><View style={styles.overlay}><MapFailureCard onRetry={this.retry} onBack={this.props.onBack} /></View></View>;
     return React.createElement(React.Fragment, { key: this.state.retry }, this.props.children);
   }
 }
@@ -90,7 +90,7 @@ export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onSt
     return () => clearTimeout(timeout);
   }, [status, reload]);
 
-  if (!sourceResult.ok) return <MapFailureCard message={sourceResult.userMessage} retrying={retry.current.isInFlight()} onRetry={retryMap} onBack={onBack} />;
+  if (!sourceResult.ok) return <View style={[styles.map, { height }]}><View style={styles.overlay}><MapFailureCard message={sourceResult.userMessage} retrying={retry.current.isInFlight()} onRetry={retryMap} onBack={onBack} /></View></View>;
 
   const processProps = Platform.OS === "ios"
     ? { onContentProcessDidTerminate: () => { if (activeInstance.current === reload) fail("MAP_CONTENT_PROCESS_TERMINATED", TERRAIN_MAP_FAILURE_MESSAGE, "terrain_map_content_process_terminated"); } }
