@@ -11,7 +11,7 @@ export async function storeSession(payload) {
   await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, access);
 }
 
-export async function clearSession() { await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY); }
+export async function clearSession(storage = SecureStore) { await storage.deleteItemAsync(ACCESS_TOKEN_KEY); }
 
 export async function restoreSession(storage = SecureStore, now = Date.now()) {
   const token = await storage.getItemAsync(ACCESS_TOKEN_KEY);

@@ -295,10 +295,49 @@ export default function App() {
     if (destination === "library") { setShowAccount(false); await loadLibrary(1); }
   };
   const beginOrientationReplay = async () => { await replayOrientation(SecureStore); setOrientationVisible(true); };
+  const handleSignedOut = (nextMessage = "") => {
+    analysisLoadGeneration.current += 1;
+    offlineDownload?.controller.abort();
+    void stopSarBackground().catch(() => {});
+    accountRef.current = null;
+    setAccount(null);
+    setAuthState("unauthenticated");
+    setShowAccount(false);
+    setScreen("home");
+    setAnalysisName("");
+    setSavedAnalysisId("");
+    setPoints([]);
+    setAnalysis(null);
+    setInitialFitAnalysisId(null);
+    setSelectedWaypoint(null);
+    setResultsUi(createResultsState());
+    setNavigationTargetEntity(null);
+    setUserLocation(null);
+    setUserLocationEnabled(false);
+    setLibrary(null);
+    setLibraryLoading(false);
+    setPendingAnalyses([]);
+    setPaymentRecoveryReady(false);
+    setLibraryReturnScreen(null);
+    setOfflinePackages([]);
+    setOfflineStatus("");
+    setOfflineManifest(null);
+    setOfflineDownload(null);
+    setHomeSummary(null);
+    setHomeError("");
+    setPurchase(null);
+    setQuotedSetupKey(null);
+    setHadQuote(false);
+    setQuoteLoading(false);
+    setLayerSheetVisible(false);
+    setError("");
+    setSessionMessage(nextMessage);
+    mapCamera.current = null;
+  };
 
   if (authState === "booting" || authState === "restoring") return <SafeAreaView style={styles.safeArea}><AppLoadingScreen /></SafeAreaView>;
   if (authState === "unavailable") return <SafeAreaView style={styles.safeArea}><ErrorState message={sessionMessage} onRetry={() => setRestoreNonce((value) => value + 1)} /></SafeAreaView>;
-  if (!account || showAccount) return <><AccountScreen user={account || undefined} initialMessage={sessionMessage} onAuthenticated={(user) => { accountRef.current=user; setAccount(user); setSessionMessage(""); setAuthState("authenticated"); }} onSignedOut={() => { stopSarBackground().catch(()=>{}); accountRef.current=null; setAccount(null); setAuthState("unauthenticated"); setShowAccount(false); }} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.2" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
+  if (!account || showAccount) return <><AccountScreen user={account || undefined} initialMessage={sessionMessage} onAuthenticated={(user) => { accountRef.current=user; setAccount(user); setSessionMessage(""); setAuthState("authenticated"); }} onSignedOut={handleSignedOut} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.2" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
   if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><AppLoadingScreen message="Restoring your analyses…" /></SafeAreaView>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {

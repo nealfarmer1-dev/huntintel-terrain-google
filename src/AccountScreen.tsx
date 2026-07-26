@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { accountRequest, fetchAccount, fetchStorageQuota } from "./api";
+import { createAccountActionGuard, runDeleteAccountAction, runSignOutAction } from "./account-actions";
 import { clearSession, storeSession } from "./auth";
 import { listOfflinePackages } from "./offline";
 import { PasswordField } from "./PasswordField";
@@ -44,6 +45,13 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   const [quota, setQuota] = useState<any>(null);
   const [downloadCount, setDownloadCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [signOutMessage, setSignOutMessage] = useState("");
+  const [deleteAccountMessage, setDeleteAccountMessage] = useState("");
+  const signOutGuard = useRef(createAccountActionGuard());
+  const deleteAccountGuard = useRef(createAccountActionGuard());
+  const deleteDialogOpen = useRef(false);
   const logoScale = Platform.OS === "ios" ? 0.34 : 0.32;
   const logoMaximumSize = Platform.OS === "ios" ? 152 : 144;
   const loginLogoSize = Math.min(logoMaximumSize, Math.max(96, Math.round(width * logoScale)));
@@ -83,16 +91,39 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
     finally { setBusy(false); }
   };
 
-  const signOut = async () => { await clearSession(); onSignedOut(); };
-  const removeAccount = () => Alert.alert("Delete account?", "This permanently deletes your shared HuntIntel account.", [
-    { text: "Cancel", style: "cancel" },
-    { text: "Delete", style: "destructive", onPress: async () => { try { await accountRequest("", undefined, "DELETE"); await clearSession(); onSignedOut(); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to delete account."); } } },
-  ]);
+  const signOut = () => {
+    if (isDeletingAccount || deleteDialogOpen.current || deleteAccountGuard.current.current) return;
+    void runSignOutAction({ guard: signOutGuard.current, clearSession, onSignedOut, setBusy: setIsSigningOut, setMessage: setSignOutMessage });
+  };
+  const confirmDeleteAccount = () => {
+    if (deleteDialogOpen.current || deleteAccountGuard.current.current || isSigningOut || signOutGuard.current.current) return;
+    deleteDialogOpen.current = true;
+    setDeleteAccountMessage("");
+    Alert.alert(
+      "Permanently delete account?",
+      "Your HuntIntel account and app data associated with it will be permanently deleted according to the account deletion policy. This is not the same as signing out, and it cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel", onPress: () => { deleteDialogOpen.current = false; } },
+        { text: "Delete Account", style: "destructive", onPress: () => {
+          deleteDialogOpen.current = false;
+          void runDeleteAccountAction({
+            guard: deleteAccountGuard.current,
+            deleteAccount: () => accountRequest("", undefined, "DELETE"),
+            clearSession,
+            onSignedOut,
+            setBusy: setIsDeletingAccount,
+            setMessage: setDeleteAccountMessage,
+          });
+        } },
+      ],
+      { cancelable: true, onDismiss: () => { deleteDialogOpen.current = false; } },
+    );
+  };
 
   if (mode === "security") {
     const displayName = [user?.first_name || user?.firstName, user?.last_name || user?.lastName].filter(Boolean).join(" ") || "HuntIntel member";
     return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.page}>
-      <View style={styles.header}><View><Text style={styles.eyebrow}>HuntIntel Terrain Intelligence</Text><Text style={styles.title}>Account</Text></View>{onClose && <Button label="Close" onPress={onClose} />}</View>
+      <View style={styles.header}><View><Text style={styles.eyebrow}>HuntIntel Terrain Intelligence</Text><Text style={styles.title}>Account</Text></View>{onClose && <Button label="Done" accessibilityLabel="Close Account and return to Terrain" onPress={onClose} />}</View>
       <Section title="Profile"><Text style={styles.value}>{displayName}</Text><Text style={styles.label}>Email</Text><Text style={styles.value}>{user?.email || "Verified HuntIntel account"}</Text></Section>
       <Section title="Storage usage"><Text style={styles.value}>{quotaCopy(quota)}</Text><Text style={styles.meta}>Attachment storage shared by your HuntIntel account.</Text></Section>
       <Section title="Terrain Library"><Button label={`Downloads (${downloadCount})`} onPress={onOpenDownloads} /><Button label="My Analyses" onPress={onOpenAnalyses} /></Section>
@@ -107,9 +138,20 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
         <PasswordField style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />
         <PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />
         <Button label="Change Password" primary onPress={async () => { if (newPassword !== confirmPassword) { setMessage("Passwords do not match."); return; } try { await accountRequest("/change-password", { current_password: password, new_password: newPassword, confirm_password: confirmPassword }); setMessage("Password changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to change password."); } }} />
-        <Button label="Sign Out" onPress={signOut} /><Button label="Delete Account" danger onPress={removeAccount} />
         {!!message && <Text accessibilityLiveRegion="polite" style={styles.meta}>{message}</Text>}
       </Section>
+      <Section title="Session">
+        <Text style={styles.meta}>Sign out of this device and return to the HuntIntel Terrain login screen.</Text>
+        <Button label="Sign Out" loadingLabel="Signing out…" accessibilityLabel="Sign out of HuntIntel Terrain" loading={isSigningOut} disabled={isDeletingAccount} onPress={signOut} />
+        {!!signOutMessage && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.actionError}>{signOutMessage}</Text>}
+      </Section>
+      <View style={styles.dangerZone}>
+        <Section title="Danger Zone">
+          <Text style={styles.dangerExplanation}>Deleting your account is permanent, removes associated account data according to the deletion policy, and is different from signing out.</Text>
+          <Button label="Delete Account" loadingLabel="Deleting account…" accessibilityLabel="Permanently delete HuntIntel account" danger loading={isDeletingAccount} disabled={isSigningOut} onPress={confirmDeleteAccount} />
+          {!!deleteAccountMessage && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.actionError}>{deleteAccountMessage}</Text>}
+        </Section>
+      </View>
     </ScrollView></SafeAreaView>;
   }
 
@@ -134,8 +176,8 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
 
 function Section({ title, children }: any) { return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{children}</View>; }
 function Agreement({ label, linkLabel, url, checked, onChange }: any) { return <View style={styles.agreement}><Pressable accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked }} hitSlop={4} onPress={() => onChange(!checked)} style={styles.agreementToggle}><View style={[styles.checkbox, checked && styles.checkboxChecked]}><Text style={styles.checkmark}>{checked ? "✓" : ""}</Text></View><Text style={styles.agreementText}>{label}</Text></Pressable><Pressable accessibilityRole="link" accessibilityLabel={`${linkLabel}, opens in browser`} onPress={() => Linking.openURL(url)} style={styles.legalLink}><Text style={styles.legalLinkText}>{linkLabel}</Text></Pressable></View>; }
-function Button({ label, onPress, primary, danger, disabled, loading }: any) { const inactive=Boolean(disabled||loading); return <Pressable accessibilityRole="button" accessibilityState={{ disabled: inactive, busy:Boolean(loading) }} disabled={inactive} onPress={onPress} style={({pressed})=>[styles.button, primary && styles.primary, danger && styles.danger, inactive && styles.disabled, pressed&&styles.pressed]}>{loading&&<ActivityIndicator size="small" color={primary?"#19140d":"#f5f2e9"}/>}<Text style={[styles.buttonText, primary && styles.primaryText]}>{loading?"Working…":label}</Text></Pressable>; }
+function Button({ label, loadingLabel = "Working…", accessibilityLabel, onPress, primary, danger, disabled, loading }: any) { const inactive=Boolean(disabled||loading); return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ disabled: inactive, busy:Boolean(loading) }} disabled={inactive} onPress={onPress} style={({pressed})=>[styles.button, primary && styles.primary, danger && styles.danger, inactive && styles.disabled, pressed&&styles.pressed]}>{loading&&<ActivityIndicator size="small" color={primary?"#19140d":"#f5f2e9"}/>}<Text style={[styles.buttonText, primary && styles.primaryText]}>{loading?loadingLabel:label}</Text></Pressable>; }
 const styles = StyleSheet.create({
   safe:{flex:1,backgroundColor:"#10140f"},keyboard:{flex:1},page:{width:"100%",maxWidth:820,alignSelf:"center",padding:20,paddingBottom:44,gap:14},wrap:{flexGrow:1,justifyContent:"center",padding:22},card:{width:"100%",maxWidth:540,alignSelf:"center",gap:14,padding:24,borderRadius:Platform.OS==="ios"?24:20,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},
-  loginBrand:{alignItems:"center",justifyContent:"center",gap:12,marginBottom:2},loginLogo:{alignSelf:"center",backgroundColor:"#020706"},loginEyebrow:{alignSelf:"stretch",textAlign:"center"},header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",gap:12},eyebrow:{color:"#d0a65d",letterSpacing:2,textTransform:"uppercase",fontSize:12},title:{color:"#f0f3ea",fontSize:28,fontWeight:"800"},section:{gap:10,padding:18,borderRadius:Platform.OS==="ios"?20:16,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},sectionTitle:{color:"#f0f3ea",fontSize:18,fontWeight:"800"},label:{color:"#d0a65d",fontSize:12,textTransform:"uppercase",marginTop:4},value:{color:"#f0f3ea",fontSize:16},input:{minHeight:48,color:"#f0f3ea",backgroundColor:"#0f140f",borderRadius:14,padding:14,borderWidth:1,borderColor:"#344333",fontSize:16},forgotPasswordLink:{alignSelf:"flex-end",minHeight:44,height:Platform.OS==="android"?48:44,justifyContent:"center",marginTop:-8},forgotPasswordText:{color:"#d0a65d",fontSize:13,fontWeight:"700"},agreements:{gap:14,paddingVertical:8},agreementsTitle:{color:"#d0a65d",fontSize:12,fontWeight:"800",letterSpacing:1.5,textTransform:"uppercase"},agreement:{gap:2},agreementToggle:{minHeight:48,flexDirection:"row",alignItems:"center",gap:12},checkbox:{width:24,height:24,borderWidth:2,borderColor:"#82907e",borderRadius:5,alignItems:"center",justifyContent:"center"},checkboxChecked:{backgroundColor:"#d0a65d",borderColor:"#d0a65d"},checkmark:{color:"#19140d",fontWeight:"900"},agreementText:{flex:1,color:"#f0f3ea",lineHeight:20},legalLink:{minHeight:48,alignSelf:"flex-start",justifyContent:"center",marginLeft:36,paddingHorizontal:4},legalLinkText:{color:"#d0a65d",fontWeight:"700",textDecorationLine:"underline"},meta:{color:"#a8b5a2",lineHeight:20},button:{minHeight:48,paddingHorizontal:16,paddingVertical:12,borderRadius:Platform.OS==="ios"?14:12,backgroundColor:"#283329",borderWidth:1,borderColor:"#3b4b3a",alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8},primary:{backgroundColor:"#d0a65d",borderColor:"#e5c682"},danger:{backgroundColor:"#9b493e",borderColor:"#bd6b5d"},disabled:{opacity:.45},pressed:{opacity:.76,transform:[{scale:.985}]},buttonText:{color:"#f5f2e9",fontWeight:"700",textAlign:"center"},primaryText:{color:"#19140d"}
+  loginBrand:{alignItems:"center",justifyContent:"center",gap:12,marginBottom:2},loginLogo:{alignSelf:"center",backgroundColor:"#020706"},loginEyebrow:{alignSelf:"stretch",textAlign:"center"},header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",gap:12},eyebrow:{color:"#d0a65d",letterSpacing:2,textTransform:"uppercase",fontSize:12},title:{color:"#f0f3ea",fontSize:28,fontWeight:"800"},section:{gap:10,padding:18,borderRadius:Platform.OS==="ios"?20:16,backgroundColor:"#182019",borderWidth:1,borderColor:"#2d3b2d"},sectionTitle:{color:"#f0f3ea",fontSize:18,fontWeight:"800"},label:{color:"#d0a65d",fontSize:12,textTransform:"uppercase",marginTop:4},value:{color:"#f0f3ea",fontSize:16},input:{minHeight:48,color:"#f0f3ea",backgroundColor:"#0f140f",borderRadius:14,padding:14,borderWidth:1,borderColor:"#344333",fontSize:16},forgotPasswordLink:{alignSelf:"flex-end",minHeight:44,height:Platform.OS==="android"?48:44,justifyContent:"center",marginTop:-8},forgotPasswordText:{color:"#d0a65d",fontSize:13,fontWeight:"700"},agreements:{gap:14,paddingVertical:8},agreementsTitle:{color:"#d0a65d",fontSize:12,fontWeight:"800",letterSpacing:1.5,textTransform:"uppercase"},agreement:{gap:2},agreementToggle:{minHeight:48,flexDirection:"row",alignItems:"center",gap:12},checkbox:{width:24,height:24,borderWidth:2,borderColor:"#82907e",borderRadius:5,alignItems:"center",justifyContent:"center"},checkboxChecked:{backgroundColor:"#d0a65d",borderColor:"#d0a65d"},checkmark:{color:"#19140d",fontWeight:"900"},agreementText:{flex:1,color:"#f0f3ea",lineHeight:20},legalLink:{minHeight:48,alignSelf:"flex-start",justifyContent:"center",marginLeft:36,paddingHorizontal:4},legalLinkText:{color:"#d0a65d",fontWeight:"700",textDecorationLine:"underline"},meta:{color:"#a8b5a2",lineHeight:20},actionError:{color:"#f0a394",lineHeight:20},dangerZone:{marginTop:24},dangerExplanation:{color:"#d9b1a8",lineHeight:21},button:{minHeight:48,paddingHorizontal:16,paddingVertical:12,borderRadius:Platform.OS==="ios"?14:12,backgroundColor:"#283329",borderWidth:1,borderColor:"#3b4b3a",alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8},primary:{backgroundColor:"#d0a65d",borderColor:"#e5c682"},danger:{backgroundColor:"#9b493e",borderColor:"#bd6b5d"},disabled:{opacity:.45},pressed:{opacity:.76,transform:[{scale:.985}]},buttonText:{color:"#f5f2e9",fontWeight:"700",textAlign:"center"},primaryText:{color:"#19140d"}
 });
