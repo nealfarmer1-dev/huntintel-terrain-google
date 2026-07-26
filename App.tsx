@@ -52,7 +52,10 @@ import { LOCATION_PERMISSION_MESSAGE, LOCATION_UNAVAILABLE_MESSAGE, acquireCente
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
 const MAP_HEIGHT = 260;
-const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken((globalThis as any).process?.env || {});
+const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken({
+  EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN:
+    process.env.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN,
+});
 const HAS_MAPBOX_ACCESS_TOKEN = MAPBOX_ACCESS_TOKEN.length > 0;
 
 const ANALYSIS_MODE_OPTIONS = [

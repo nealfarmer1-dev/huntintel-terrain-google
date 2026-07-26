@@ -7,7 +7,13 @@ const productionBuild =
   typeof __DEV__ !== "undefined"
     ? !__DEV__
     : process.env.NODE_ENV === "production";
-const baseUrl = resolveTerrainApiBaseUrl(process.env, productionBuild);
+const baseUrl = resolveTerrainApiBaseUrl(
+  {
+    EXPO_PUBLIC_TERRAIN_API_BASE_URL:
+      process.env.EXPO_PUBLIC_TERRAIN_API_BASE_URL,
+  },
+  productionBuild,
+);
 let sessionExpiredHandler = null;
 
 export function setSessionExpiredHandler(handler) {

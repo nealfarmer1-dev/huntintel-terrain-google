@@ -20,6 +20,17 @@ test("production API configuration is canonical and rejects localhost", () => {
   assert.throws(() => resolveTerrainApiBaseUrl({ EXPO_PUBLIC_TERRAIN_API_BASE_URL: "http://127.0.0.1:3000" }, true), /cannot use localhost/);
 });
 
+test("Expo public runtime values use statically inlineable references", async () => {
+  const [api, app] = await Promise.all([
+    readFile(new URL("../src/api.js", import.meta.url), "utf8"),
+    readFile(new URL("../App.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(api, /process\.env\.EXPO_PUBLIC_TERRAIN_API_BASE_URL/);
+  assert.doesNotMatch(api, /resolveTerrainApiBaseUrl\(process\.env/);
+  assert.match(app, /process\.env\.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN/);
+  assert.doesNotMatch(app, /globalThis.*process.*env/);
+});
+
 test("protected request headers preserve authorization alongside request-specific headers", async () => {
   const source = await readFile(new URL("../src/api.js", import.meta.url), "utf8");
   assert.match(source, /headers: suppliedHeaders/);
