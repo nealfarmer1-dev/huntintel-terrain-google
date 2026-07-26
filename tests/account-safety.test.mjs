@@ -121,6 +121,7 @@ test("Account UI provides a safe exit, separated actions, and second-tap deletio
 
   assert.match(app, /if \(showAccount\) \{ setShowAccount\(false\); return true; \}/);
   assert.match(app, /onSignedOut=\{handleSignedOut\}/);
+  assert.match(app, /<AccountScreen key=\{account \? "authenticated-account" : "login"\}/);
   for (const reset of ['setAccount(null)', 'setAuthState("unauthenticated")', 'setShowAccount(false)', 'setScreen("home")', 'setAnalysis(null)', 'setLibrary(null)']) {
     assert.ok(app.includes(reset), `expected authenticated-root reset: ${reset}`);
   }
