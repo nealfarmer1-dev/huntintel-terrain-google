@@ -60,3 +60,36 @@ export function resolveMapboxAccessToken(env = {}) {
 export function mapboxStyleFor(value) {
   return MAPBOX_STYLE_OPTIONS.find((option) => option.value === value)?.style || MAPBOX_STYLE_OPTIONS[0].style;
 }
+
+function geometryAnchor(geometry) {
+  const coordinates = [];
+  function collect(value) {
+    if (!Array.isArray(value)) return;
+    if (Number.isFinite(Number(value[0])) && Number.isFinite(Number(value[1]))) {
+      const longitude = Number(value[0]); const latitude = Number(value[1]);
+      if (longitude >= -180 && longitude <= 180 && latitude >= -90 && latitude <= 90) coordinates.push([longitude, latitude]);
+      return;
+    }
+    value.forEach(collect);
+  }
+  collect(geometry?.coordinates);
+  if (!coordinates.length) return null;
+  return coordinates.reduce((center, point) => [center[0] + point[0] / coordinates.length, center[1] + point[1] / coordinates.length], [0, 0]);
+}
+
+export function relationshipsToGeoJson(relationships = [], features = []) {
+  const featureMap = new Map(features.map((feature) => [feature?.id, feature]));
+  return {
+    type: "FeatureCollection",
+    features: relationships.map((relationship) => {
+      if (!relationship?.id) return null;
+      if (["LineString", "MultiLineString"].includes(relationship.geometry?.type)) {
+        return { type: "Feature", id: relationship.id, properties: { ...relationship, geometry: undefined }, geometry: relationship.geometry };
+      }
+      const source = geometryAnchor(featureMap.get(relationship.sourceFeatureId)?.geometry);
+      const target = geometryAnchor(featureMap.get(relationship.targetFeatureId)?.geometry);
+      if (!source || !target) return null;
+      return { type: "Feature", id: relationship.id, properties: { ...relationship, geometry: undefined }, geometry: { type: "LineString", coordinates: [source, target] } };
+    }).filter(Boolean),
+  };
+}

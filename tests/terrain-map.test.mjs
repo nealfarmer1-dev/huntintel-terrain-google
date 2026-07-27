@@ -6,6 +6,7 @@ import {
   MAPBOX_STYLE_OPTIONS,
   USGS_TERRAIN_OVERLAY_OPTIONS,
   buildAnalysisRequestPayload,
+  relationshipsToGeoJson,
   resolveMapboxAccessToken,
   usgs3depTileUrl,
 } from "../src/terrain-map.js";
@@ -21,6 +22,19 @@ test("analysis request sends standalone name as analysisName with null propertyI
 
   assert.equal(payload.analysisName, "Weekend Test Property");
   assert.equal(payload.propertyId, null);
+});
+
+test("relationship records become map lines between feature geometry anchors", () => {
+  const collection = relationshipsToGeoJson(
+    [{ id: "relationship-1", sourceFeatureId: "feature-1", targetFeatureId: "feature-2" }],
+    [
+      { id: "feature-1", geometry: { type: "Point", coordinates: [-86, 36] } },
+      { id: "feature-2", geometry: { type: "Polygon", coordinates: [[[-85.99, 36], [-85.98, 36], [-85.98, 36.01], [-85.99, 36]]] } },
+    ],
+  );
+  assert.equal(collection.features.length, 1);
+  assert.equal(collection.features[0].geometry.type, "LineString");
+  assert.deepEqual(collection.features[0].geometry.coordinates[0], [-86, 36]);
 });
 
 test("analysis request preserves valid UUID propertyId", () => {
