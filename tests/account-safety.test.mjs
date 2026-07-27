@@ -101,7 +101,7 @@ test("Account UI provides a safe exit, separated actions, and second-tap deletio
     readFile(new URL("../App.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(account, /label=\{Platform\.OS === "ios" \? "Done" : "Back"\} accessibilityLabel="Close Account and return to Terrain"/);
+  assert.match(account, /label="Back" accessibilityLabel="Close Account and return to Terrain"/);
   assert.match(account, /loadingLabel="Signing out…"/);
   assert.match(account, /loadingLabel="Deleting account…"/);
   assert.match(account, /accessibilityState=\{\{ disabled: inactive, busy:Boolean\(loading\) \}\}/);

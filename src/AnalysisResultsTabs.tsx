@@ -53,7 +53,7 @@ export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setRes
 
   return <View style={s.container}>
     <Text style={s.heading}>Interactive Results</Text>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs} accessibilityRole="tablist">{TABS.map(([id, label]) => <Button key={id} role="tab" label={id === "waypoints" ? `${label} (${analysis.waypoints?.length || 0})` : id === "features" ? `${label} (${analysis.features?.length || 0})` : label} selected={resultsUi.activeResultsTab === id} onPress={() => activate(id)} />)}</ScrollView>
+    <View style={s.tabs} accessibilityRole="tablist">{TABS.map(([id, label]) => <Button key={id} role="tab" label={id === "waypoints" ? `${label} (${analysis.waypoints?.length || 0})` : id === "features" ? `${label} (${analysis.features?.length || 0})` : label} selected={resultsUi.activeResultsTab === id} onPress={() => activate(id)} />)}</View>
     <View style={resultsUi.activeResultsTab === "waypoints" ? undefined : s.hidden}>{waypointPanel}</View>
     <View style={resultsUi.activeResultsTab === "features" ? undefined : s.hidden}>{featurePanel}</View>
     <View style={resultsUi.activeResultsTab === "navigation" ? undefined : s.hidden}><NavigationPanel key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints} selectedTarget={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} onRequestVisible={onNavigationRequestVisible} onSelectTarget={(waypoint:any)=>{onSelect("waypoint",waypoint.id,false);onNavigate(waypoint)}} /></View>
@@ -64,7 +64,7 @@ export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setRes
 const s = StyleSheet.create({
   container: { marginTop: 16, gap: 10 },
   heading: { color: "#f0f3ea", fontSize: 22, fontWeight: "800" },
-  tabs: { gap: 8, paddingVertical: 4 },
+  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: 4 },
   panel: { gap: 10 },
   hidden: { display: "none" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },

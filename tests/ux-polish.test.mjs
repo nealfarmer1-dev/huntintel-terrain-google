@@ -46,11 +46,15 @@ test("purchase, library, results, and shared controls use explicit state feedbac
 });
 
 test("responsive and account safety contracts remain visible", async () => {
-  const [app, account] = await Promise.all([read("../App.tsx"), read("../src/AccountScreen.tsx")]);
+  const [app, account, results] = await Promise.all([read("../App.tsx"), read("../src/AccountScreen.tsx"), read("../src/AnalysisResultsTabs.tsx")]);
   assert.match(app, /containerWide: \{ maxWidth: 980/);
   assert.match(app, /minHeight: 48/);
   assert.match(account, /contentInsetAdjustmentBehavior="automatic"/);
+  assert.match(account, /style=\{styles\.headerCopy\}/);
+  assert.match(account, /headerCopy:\{flex:1,minWidth:0\}/);
+  assert.match(results, /<View style=\{s\.tabs\} accessibilityRole="tablist">/);
+  assert.match(results, /tabs: \{ flexDirection: "row", flexWrap: "wrap"/);
   assert.match(account, /Deleting your account is permanent and removes associated account data\./);
   assert.match(account, /Your HuntIntel account and associated data will be permanently deleted\. This action cannot be undone\./);
-  assert.match(account, /label=\{Platform\.OS === "ios" \? "Done" : "Back"\}/);
+  assert.match(account, /label="Back"/);
 });
