@@ -53,6 +53,8 @@ import { safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } from "./src/map-runti
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
 const MAP_HEIGHT = 260;
+const INITIAL_SETUP_MAP_CENTER = [-84.5, 33.0];
+const INITIAL_SETUP_MAP_ZOOM = 4;
 const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken({
   EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN:
     process.env.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN,
@@ -89,7 +91,8 @@ function safeJson(value: unknown) {
 
 function buildMapHtml({ token, polygon, features, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled, camera, initialAnalysisFit }: any) {
   const style = mapboxStyleFor(basemap);
-  const center = polygon?.coordinates?.[0]?.[0] || [-87.0, 32.6];
+  const center = polygon?.coordinates?.[0]?.[0] || INITIAL_SETUP_MAP_CENTER;
+  const zoom = polygon ? 13 : INITIAL_SETUP_MAP_ZOOM;
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
   const mapWaypoints = (waypoints || []).map((waypoint: any) => ({ ...waypoint, __popup: waypointDetails(waypoint) }));
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
@@ -110,7 +113,7 @@ const initialUserLocation=${safeJson(userLocation || null)};
 const initialUserLocationEnabled=${safeJson(Boolean(userLocationEnabled))};
 const initialCamera=${safeJson(camera || null)};
 const initialAnalysisFit=${safeJson(Boolean(initialAnalysisFit))};
-const map=new mapboxgl.Map({container:'map',style:style,center:initialCamera&&initialCamera.center||centerSafe(),zoom:initialCamera&&initialCamera.zoom||13,bearing:initialCamera&&initialCamera.bearing||0,pitch:initialCamera&&initialCamera.pitch||0,projection:'mercator'});
+const map=new mapboxgl.Map({container:'map',style:style,center:initialCamera&&initialCamera.center||centerSafe(),zoom:initialCamera&&initialCamera.zoom||${zoom},bearing:initialCamera&&initialCamera.bearing||0,pitch:initialCamera&&initialCamera.pitch||0,projection:'mercator'});
 map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}),'top-right');
 let terrainEnabled=false;
 function post(type,payload){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type,payload}));}
