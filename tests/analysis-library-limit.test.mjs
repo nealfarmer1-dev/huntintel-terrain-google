@@ -19,3 +19,11 @@ test("Google supports confirmed individual and multi-select delete with immediat
   const updated = removeDeletedAnalyses({ items: [{ analysisJobId: "a" }, { analysisJobId: "b" }], total: 2, ownedTotal: 2, pageSize: 12 }, ["a"], 1);
   assert.equal(updated.items.length, 1); assert.equal(updated.ownedTotal, 1); assert.equal(updated.limit, 150);
 });
+
+test("Google saved-analysis previews connect every boundary vertex responsively", async () => {
+  const screen = await readFile(new URL("../src/LibraryScreen.tsx", import.meta.url), "utf8");
+  assert.match(screen, /onLayout=\{\(event\) => setPreviewWidth\(event\.nativeEvent\.layout\.width\)\}/);
+  assert.match(screen, /projected\[\(index \+ 1\) % projected\.length\]/);
+  assert.match(screen, /styles\.boundaryEdge/);
+  assert.match(screen, /rotate: `\$\{angle\}rad`/);
+});

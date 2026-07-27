@@ -19,16 +19,33 @@ type LibraryItem = {
 type Library = { items: LibraryItem[]; page: number; pageSize: number; total: number; ownedTotal: number; limit: number; totalPages: number };
 type Props = { library: Library | null; pendingAnalyses?:any[]; loading: boolean; error: string; offlinePackages?: any[]; offlineStatus?: string; downloadingId?: string; onPage: (page: number) => void; onOpen: (id: string) => void; onResumePending?:(item:any)=>void; onNew: () => void; onDelete: (ids: string[]) => Promise<boolean>; onReturnCurrent?: () => void; onDownload?: (id: string) => void; onCancel?: () => void; onSync?: (id: string) => void; onRemove?: (id: string) => void };
 
+const PREVIEW_HEIGHT = 96;
+const PREVIEW_PADDING = 8;
+
 function BoundaryPreview({ polygon }: { polygon: LibraryItem["mapPreview"] }) {
   const ring = polygon?.coordinates?.[0] || [];
-  if (ring.length < 3) return <View style={styles.preview}><Text style={styles.meta}>Map preview unavailable</Text></View>;
-  const lons = ring.map((point) => point[0]); const lats = ring.map((point) => point[1]);
+  const [previewWidth, setPreviewWidth] = useState(0);
+  const valid = ring.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
+  const last = valid[valid.length - 1];
+  const points = valid.length > 1 && valid[0][0] === last[0] && valid[0][1] === last[1] ? valid.slice(0, -1) : valid;
+  if (points.length < 3) return <View style={styles.preview}><Text style={styles.meta}>Map preview unavailable</Text></View>;
+  const lons = points.map((point) => point[0]); const lats = points.map((point) => point[1]);
   const bounds = { minLon: Math.min(...lons), maxLon: Math.max(...lons), minLat: Math.min(...lats), maxLat: Math.max(...lats) };
-  return <View style={styles.preview}>{ring.slice(0, -1).map(([lon, lat], index) => {
-    const left = 8 + ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon || 1)) * 244;
-    const top = 82 - ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat || 1)) * 74;
-    return <View key={index} style={[styles.vertex, { left, top }]} />;
-  })}</View>;
+  const drawableWidth = Math.max(1, previewWidth - PREVIEW_PADDING * 2);
+  const drawableHeight = PREVIEW_HEIGHT - PREVIEW_PADDING * 2;
+  const projected = points.map(([lon, lat]) => ({
+    left: PREVIEW_PADDING + ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon || 1)) * drawableWidth,
+    top: PREVIEW_PADDING + (1 - ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat || 1))) * drawableHeight,
+  }));
+  return <View style={styles.preview} onLayout={(event) => setPreviewWidth(event.nativeEvent.layout.width)}>
+    {previewWidth > 0 && projected.map((point, index) => {
+      const next = projected[(index + 1) % projected.length];
+      const width = Math.hypot(next.left - point.left, next.top - point.top);
+      const angle = Math.atan2(next.top - point.top, next.left - point.left);
+      return <View key={`edge-${index}`} style={[styles.boundaryEdge, { left: (point.left + next.left - width) / 2, top: (point.top + next.top) / 2 - 1, width, transform: [{ rotate: `${angle}rad` }] }]} />;
+    })}
+    {previewWidth > 0 && projected.map((point, index) => <View key={`vertex-${index}`} style={[styles.vertex, { left: point.left - 4, top: point.top - 4 }]} />)}
+  </View>;
 }
 
 export function LibraryScreen({ library, pendingAnalyses=[], loading, error, offlinePackages = [], offlineStatus, downloadingId, onPage, onOpen, onResumePending, onNew, onDelete, onReturnCurrent, onDownload, onCancel, onSync, onRemove }: Props) {
@@ -62,7 +79,8 @@ const styles = StyleSheet.create({
   title: { color: "#f0f3ea", fontWeight: "800", fontSize: 25 }, count: { color: "#d0a65d", fontWeight: "700", marginTop: 6 }, actions: { gap: 8, alignItems: "stretch" },
   analysisCard: { overflow: "hidden", borderRadius: 18, backgroundColor: "#0f140f", borderWidth: 1, borderColor: "#344333" },
   pending:{gap:10,backgroundColor:"#24251a",borderColor:"#d0a65d",borderWidth:1,borderRadius:16,padding:14},pendingItem:{gap:6,borderTopColor:"#4a4933",borderTopWidth:1,paddingTop:10},
-  preview: { height: 96, backgroundColor: "#263726", position: "relative", overflow: "hidden" },
+  preview: { height: PREVIEW_HEIGHT, backgroundColor: "#263726", position: "relative", overflow: "hidden" },
+  boundaryEdge: { position: "absolute", height: 2, borderRadius: 1, backgroundColor: "#e6c27a" },
   vertex: { position: "absolute", width: 8, height: 8, borderRadius: 8, backgroundColor: "#e6c27a", borderWidth: 1, borderColor: "#6e5124" },
   body: { padding: 14, gap: 8 }, itemTitle: { color: "#f0f3ea", fontWeight: "700", fontSize: 17, flex: 1 },
   badge: { color: "#8ab182", textTransform: "capitalize", fontSize: 12 }, meta: { color: "#9cab97" }, finding: { color: "#e3e8dd" }, error: { color: "#d68375" },
