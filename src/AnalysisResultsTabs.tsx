@@ -13,7 +13,7 @@ function Button({ label, onPress, selected = false, disabled = false, role = "bu
 }
 
 function Detail({ entity, type, analysis, onSelect, onNavigate }: any) {
-  if (!entity) return <View style={s.detail}><Text style={s.meta}>Select a {type === "waypoint" ? "waypoint" : "terrain feature"} to view its full details.</Text></View>;
+  if (!entity) return null;
   const geometry = entityGeometry(entity); const target = navigationTarget(entity);
   const waypoint = type === "waypoint" ? waypointDetails(entity) : null;
   const related = type === "terrainFeature" ? relatedWaypointIds(entity.id, analysis.waypoints || []) : [];
@@ -30,6 +30,13 @@ function Detail({ entity, type, analysis, onSelect, onNavigate }: any) {
   </View>;
 }
 
+export function SelectedResultDetail({ analysis, resultsUi, onSelect, onNavigate }: any) {
+  const selected = selectedEntity(resultsUi, analysis);
+  if (!selected) return null;
+  const type = resultsUi.selectedEntityType === "waypoint" ? "waypoint" : "terrainFeature";
+  return <Detail entity={selected} type={type} analysis={analysis} onSelect={onSelect} onNavigate={onNavigate} />;
+}
+
 export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setResultsUi, onSelect, onNavigate, navigationTargetEntity, navigationRequestNonce = 0, onNavigationRequestVisible }: any) {
   const selected = selectedEntity(resultsUi, analysis);
   const waypoints = sortResultEntities(analysis.waypoints || [], resultsUi.waypointSort);
@@ -41,14 +48,12 @@ export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setRes
     <View style={s.row}><Button label="Priority / score" selected={resultsUi.waypointSort === "score"} onPress={() => setResultsUi((current: any) => ({ ...current, waypointSort: "score" }))} /><Button label="Confidence" selected={resultsUi.waypointSort === "confidence"} onPress={() => setResultsUi((current: any) => ({ ...current, waypointSort: "confidence" }))} /><Button label="Type" selected={resultsUi.waypointSort === "type"} onPress={() => setResultsUi((current: any) => ({ ...current, waypointSort: "type" }))} /></View>
     {visibleWaypoints.length ? visibleWaypoints.map((waypoint: any) => <Pressable key={waypoint.id} accessibilityRole="button" accessibilityLabel={`${waypoint.title || waypoint.waypointType || "Untitled waypoint"}, score ${Number(waypoint.score || 0).toFixed(1)}`} accessibilityHint="Selects this waypoint and shows it on the map" accessibilityState={{ selected: selected?.id === waypoint.id }} onPress={() => onSelect("waypoint", waypoint.id, true)} style={[s.resultRow, selected?.id === waypoint.id && s.selectedRow]}><View style={s.flex}><Text style={s.resultTitle}>{waypoint.title || waypoint.waypointType || "Untitled waypoint"}</Text><Text style={s.meta}>{waypoint.waypointType || "waypoint"} · {waypoint.reason || "Waypoint recommendation."}</Text></View><Text style={s.score}>{Number(waypoint.score || 0).toFixed(1)}</Text></Pressable>) : <Text style={s.meta}>No waypoints returned.</Text>}
     {visibleWaypoints.length < waypoints.length && <Button label={`Show ${Math.min(20, waypoints.length - visibleWaypoints.length)} more`} onPress={() => setResultsUi((current: any) => ({ ...current, waypointLimit: current.waypointLimit + 20 }))} />}
-    <Detail entity={resultsUi.selectedEntityType === "waypoint" ? selected : null} type="waypoint" analysis={analysis} onSelect={onSelect} onNavigate={onNavigate} />
   </View>;
 
   const featurePanel = <View style={s.panel}>
     <View style={s.row}><Button label="Priority / score" selected={resultsUi.featureSort === "score"} onPress={() => setResultsUi((current: any) => ({ ...current, featureSort: "score" }))} /><Button label="Confidence" selected={resultsUi.featureSort === "confidence"} onPress={() => setResultsUi((current: any) => ({ ...current, featureSort: "confidence" }))} /><Button label="Type" selected={resultsUi.featureSort === "type"} onPress={() => setResultsUi((current: any) => ({ ...current, featureSort: "type" }))} /></View>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.row}><Button label="Show all" selected={!resultsUi.activeCategoryFilter} onPress={() => setResultsUi((current: any) => ({ ...current, activeCategoryFilter: null }))} />{groups.map((group: any) => <Button key={group.id} label={`${group.label} (${group.items.length})`} selected={resultsUi.activeCategoryFilter === group.id} onPress={() => setResultsUi((current: any) => ({ ...current, activeCategoryFilter: group.id }))} />)}</ScrollView>
     {groups.length ? groups.map((group: any) => { const expanded = resultsUi.expandedFeatureGroups.includes(group.id); const items = sortResultEntities(group.items, resultsUi.featureSort); return <View key={group.id} style={s.group}><Pressable accessibilityRole="button" accessibilityState={{ expanded }} style={s.groupHeader} onPress={() => setResultsUi((current: any) => { const next = new Set(current.expandedFeatureGroups); next.has(group.id) ? next.delete(group.id) : next.add(group.id); return { ...current, expandedFeatureGroups: [...next] }; })}><Text style={s.resultTitle}>{group.label}</Text><Text style={s.score}>{items.length}</Text></Pressable>{expanded && items.map((feature: any) => <Pressable key={feature.id} accessibilityRole="button" accessibilityState={{ selected: selected?.id === feature.id }} onPress={() => onSelect("terrainFeature", feature.id, true)} style={[s.resultRow, selected?.id === feature.id && s.selectedRow]}><View style={s.flex}><Text style={s.resultTitle}>{feature.properties?.definitionLabel || feature.featureType || "Terrain feature"}</Text><Text style={s.meta}>{feature.explanation || feature.properties?.confidenceReason || "Terrain finding."}</Text></View><Text style={s.score}>{Number(feature.score || 0).toFixed(1)}</Text></Pressable>)}</View>; }) : <Text style={s.meta}>No terrain features returned.</Text>}
-    <Detail entity={resultsUi.selectedEntityType === "terrainFeature" ? selected : null} type="terrainFeature" analysis={analysis} onSelect={onSelect} onNavigate={onNavigate} />
   </View>;
 
   return <View style={s.container}>

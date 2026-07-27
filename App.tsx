@@ -32,7 +32,7 @@ import { LibraryScreen } from "./src/LibraryScreen";
 import { TeamsScreen } from "./src/TeamsScreen";
 import { SarScreen } from "./src/SarScreen";
 import { PdfReportPanel } from "./src/PdfReportPanel";
-import { AnalysisResultsTabs } from "./src/AnalysisResultsTabs";
+import { AnalysisResultsTabs, SelectedResultDetail } from "./src/AnalysisResultsTabs";
 import { PaymentGate } from "./src/PaymentGate";
 import { buildPolygonFromPoints, calculateApproximateAcreage } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, resolveMapboxAccessToken } from "./src/terrain-map";
@@ -661,6 +661,7 @@ export default function App() {
             <Text style={styles.metric}>Approximate acreage: {Number(analysis.summary?.approximateAcreage || acreage).toLocaleString()} acres</Text>
             <Text style={styles.metric}>Features: {analysis.features.length}</Text>
             <Text style={styles.metric}>Waypoints: {analysis.waypoints.length}</Text>
+            <SelectedResultDetail analysis={analysis} resultsUi={resultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} />
             <View style={styles.reportPanel}><Text style={styles.sectionTitle}>{analysis.report?.title || "HTIE Report"}</Text><Text style={styles.meta}>{analysis.report?.overview || "No overview returned."}</Text><Text style={styles.sectionSubtitle}>Key Findings</Text>{(analysis.report?.keyFindings||[]).map((finding:string,index:number)=><Text key={`finding-${index}`} style={styles.meta}>• {finding}</Text>)}{analysis.report?.huntingStrategy?<><Text style={styles.sectionSubtitle}>Hunting Strategy</Text>{(Array.isArray(analysis.report.huntingStrategy)?analysis.report.huntingStrategy:[analysis.report.huntingStrategy]).map((item:string,index:number)=><Text key={`strategy-${index}`} style={styles.meta}>• {item}</Text>)}</>:null}<Text style={styles.sectionSubtitle}>Scouting Notes</Text>{(analysis.report?.scoutingNotes||[]).map((note:string,index:number)=><Text key={`scouting-${index}`} style={styles.meta}>• {note}</Text>)}<Text style={styles.sectionSubtitle}>Limitations</Text>{(analysis.report?.limitations||[]).map((item:string,index:number)=><Text key={`limitation-${index}`} style={styles.meta}>• {item}</Text>)}</View>
             {!!(analysis.analysisJobId || savedAnalysisId) && <PdfReportPanel key={analysis.analysisJobId || savedAnalysisId} analysisJobId={analysis.analysisJobId || savedAnalysisId} />}
             <AnalysisResultsTabs analysis={analysis} analysisJobId={analysis.analysisJobId || savedAnalysisId} resultsUi={resultsUi} setResultsUi={setResultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} navigationTargetEntity={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} onNavigationRequestVisible={revealNavigationPanel} />

@@ -16,6 +16,14 @@ test("native results retain one centralized ID selection model and bounded compa
   assert.doesNotMatch(tabs, /key=\{index\}/);
 });
 
+test("selected result detail appears directly after waypoint count and before the report", () => {
+  const waypoints = app.indexOf("Waypoints: {analysis.waypoints.length}");
+  const detail = app.indexOf("<SelectedResultDetail", waypoints);
+  const report = app.indexOf("<View style={styles.reportPanel}>", detail);
+  assert.ok(waypoints >= 0 && detail > waypoints && report > detail);
+  assert.equal(tabs.match(/<Detail /g)?.length, 1);
+});
+
 test("native result tabs keep Navigation and Field Records mounted while hidden", () => {
   for (const id of ["waypoints", "features", "navigation", "records"]) assert.match(tabs, new RegExp(`activeResultsTab === "${id}"`));
   assert.match(tabs, /<NavigationPanel key=\{analysisJobId\}/);
