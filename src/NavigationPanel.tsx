@@ -7,6 +7,8 @@ import * as Crypto from "expo-crypto";
 
 import { ACTIVE_KEY, BREADCRUMB_TASK } from "./navigation-background";
 import { createBreadcrumb, navigationSnapshot, transitionBreadcrumb } from "./navigation-core";
+import { ensureForegroundLocationPermission } from "./location-control";
+import { breadcrumbLocationTaskOptions, startUserInitiatedLocationTask, stopLocationTaskIfStarted } from "./location-tracking";
 import { createBreadcrumbRecord, deleteBreadcrumbRecord, updateBreadcrumbRecord } from "./api";
 
 export function NavigationPanel(props: any): any;
@@ -69,12 +71,14 @@ export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget 
       setMessage("Requesting current location…");
     }
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
+      const permission = await ensureForegroundLocationPermission(Location);
       if (!mountedRef.current) return false;
       if (permission.status !== "granted") {
         desiredFollowRef.current = false;
         setFollow(false);
-        setMessage("Location permission is required only while navigation is active.");
+        setMessage(permission.status === "unavailable"
+          ? "Location permission could not be checked. Try again."
+          : "Foreground location permission is required while navigation or breadcrumb recording is active.");
         return false;
       }
 
@@ -154,23 +158,25 @@ export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget 
       return;
     }
     if (!await locate()) return;
-    const background = await Location.requestBackgroundPermissionsAsync();
-    if (background.status !== "granted") setMessage("Background permission denied; tracking remains foreground-only.");
     const next = createBreadcrumb({ id: Crypto.randomUUID(), name: "Field breadcrumb" });
     await persist(next);
-    await createBreadcrumbRecord(analysisJobId, next).catch(() => setMessage("Breadcrumb is pending synchronization."));
-    if (background.status === "granted") {
-      await Location.startLocationUpdatesAsync(BREADCRUMB_TASK, {
-        accuracy: Location.Accuracy.High,
-        distanceInterval: 5,
-        timeInterval: 5000,
-        showsBackgroundLocationIndicator: true,
-        foregroundService: {
-          notificationTitle: "HuntIntel breadcrumb active",
-          notificationBody: "Tap the app to pause or stop tracking.",
-        },
-      });
+    try {
+      const result = await startUserInitiatedLocationTask(
+        Location,
+        BREADCRUMB_TASK,
+        breadcrumbLocationTaskOptions(Location),
+      );
+      if (result.status !== "started") {
+        await persist(null);
+        setMessage("Foreground location permission is required to record a breadcrumb.");
+        return;
+      }
+    } catch {
+      await persist(null);
+      setMessage("Breadcrumb tracking could not start. Keep the app visible and try again.");
+      return;
     }
+    await createBreadcrumbRecord(analysisJobId, next).catch(() => setMessage("Breadcrumb is pending synchronization."));
   }
 
   async function action(name) {
@@ -191,8 +197,8 @@ export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget 
         endedAt: next.endedAt,
       }).catch(() => setMessage("Breadcrumb change is pending synchronization."));
     }
-    if ((name === "finish" || name === "delete") && await Location.hasStartedLocationUpdatesAsync(BREADCRUMB_TASK)) {
-      await Location.stopLocationUpdatesAsync(BREADCRUMB_TASK);
+    if (name === "finish" || name === "delete") {
+      await stopLocationTaskIfStarted(Location, BREADCRUMB_TASK);
     }
   }
 

@@ -13,15 +13,28 @@
     },
     "plugins": [
       "react-native-iap",
-      ["expo-image-picker", {
-        "cameraPermission": "HuntIntel Terrain uses the camera only when you choose to capture a field photo or video.",
-        "photosPermission": "HuntIntel Terrain accesses a selected field photo or video only when you choose it.",
-        "microphonePermission": "HuntIntel Terrain uses the microphone only when you choose to record field video."
-      }],
-      ["expo-audio", {
-        "microphonePermission": "HuntIntel Terrain uses the microphone only when you choose to record a voice note."
-      }],
-      ["expo-location", { "locationWhenInUsePermission": "HuntIntel Terrain uses your location only when you activate navigation or opt in to live SAR sharing.", "isAndroidBackgroundLocationEnabled": true, "isAndroidForegroundServiceEnabled": true }]
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "HuntIntel Terrain uses the camera only when you choose to capture a field photo or video.",
+          "photosPermission": "HuntIntel Terrain accesses a selected field photo or video only when you choose it.",
+          "microphonePermission": "HuntIntel Terrain uses the microphone only when you choose to record field video."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "HuntIntel Terrain uses the microphone only when you choose to record a voice note."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "HuntIntel Terrain uses your location only when you activate navigation or opt in to live SAR sharing.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
     ],
     "android": {
       "package": "com.huntintel.terrainintelligence",
@@ -31,14 +44,22 @@
         "backgroundColor": "#020706"
       },
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "CAMERA",
-        "RECORD_AUDIO"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "657bae20-cff3-4bce-9a36-3037a179d586"
+      }
     }
   }
 }

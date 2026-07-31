@@ -3,15 +3,25 @@ export const LOCATION_PERMISSION_MESSAGE =
 export const LOCATION_UNAVAILABLE_MESSAGE =
   "Your current location is not available yet. Try again in a moment.";
 
-export async function acquireCenterLocation(locationApi) {
+export async function ensureForegroundLocationPermission(locationApi) {
   let permission;
   try {
     permission = await locationApi.getForegroundPermissionsAsync();
-    if (permission.status === "undetermined") {
+    if (permission.status !== "granted" && permission.canAskAgain !== false) {
       permission = await locationApi.requestForegroundPermissionsAsync();
     }
   } catch {
-    return { status: "unavailable" };
+    return { status: "unavailable", canAskAgain: false };
+  }
+
+  return permission;
+}
+
+export async function acquireCenterLocation(locationApi) {
+  const permission = await ensureForegroundLocationPermission(locationApi);
+
+  if (permission.status === "unavailable") {
+    return permission;
   }
 
   if (permission.status !== "granted") {
