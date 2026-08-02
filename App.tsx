@@ -49,12 +49,11 @@ import { AppLoadingScreen, ErrorState, LayerSheet } from "./src/NativeUi";
 import { LOCATION_PERMISSION_MESSAGE, LOCATION_UNAVAILABLE_MESSAGE, acquireCenterLocation, centerLocationJavaScript } from "./src/location-control";
 import { NativeTerrainMap, TerrainMapErrorBoundary } from "./src/NativeTerrainMap";
 import { safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } from "./src/map-runtime";
+import { mapBuildCollections, safeJson, terrainMapViewport } from "./src/map-html-runtime";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
 const MAP_HEIGHT = 260;
-const INITIAL_SETUP_MAP_CENTER = [-84.5, 33.0];
-const INITIAL_SETUP_MAP_ZOOM = 4;
 const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken({
   EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN:
     process.env.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN,
@@ -85,17 +84,13 @@ function analysisModeLabel(value: string | undefined) {
   return ANALYSIS_MODE_OPTIONS.find((option) => option.value === value)?.label || value || "Unknown";
 }
 
-function safeJson(value: unknown) {
-  return JSON.stringify(value).replace(/</g, "\\u003c");
-}
-
 function buildMapHtml({ token, polygon, features, relationships, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled, camera, initialAnalysisFit }: any) {
   const style = mapboxStyleFor(basemap);
-  const center = polygon?.coordinates?.[0]?.[0] || INITIAL_SETUP_MAP_CENTER;
-  const zoom = polygon ? 13 : INITIAL_SETUP_MAP_ZOOM;
+  const { center, zoom } = terrainMapViewport(polygon);
+  const collections = mapBuildCollections({ features, relationships, waypoints });
   const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
-  const mapWaypoints = (waypoints || []).map((waypoint: any) => ({ ...waypoint, __popup: waypointDetails(waypoint) }));
-  const mapRelationships = relationshipsToGeoJson(relationships, features);
+  const mapWaypoints = collections.waypoints.map((waypoint: any) => ({ ...waypoint, __popup: waypointDetails(waypoint) }));
+  const mapRelationships = relationshipsToGeoJson(collections.relationships, collections.features);
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
 <style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}.terrain-waypoint-popup .mapboxgl-popup-content{box-sizing:border-box;width:min(270px,calc(100vw - 40px));max-height:min(290px,calc(100vh - 28px));overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px;border:1px solid #6f8f55;border-radius:14px;background:#111812;color:#f0f3ea;box-shadow:0 8px 24px rgba(0,0,0,.48)}.terrain-waypoint-popup .mapboxgl-popup-close-button{width:44px;height:44px;color:#f0f3ea;font-size:24px}.terrain-waypoint-popup.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip{border-top-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-top .mapboxgl-popup-tip{border-bottom-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip{border-right-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip{border-left-color:#111812}.waypoint-popup{display:flex;min-width:0;flex-direction:column;gap:7px;padding-right:28px}.waypoint-popup-eyebrow{color:#d0a65d;font-size:10px;font-weight:800;letter-spacing:1.2px}.waypoint-popup-title{font-size:17px;font-weight:800;line-height:1.2}.waypoint-popup-type,.waypoint-popup-reason,.waypoint-popup-geometry{color:#aab7a5;font-size:12px;line-height:1.35}.waypoint-popup-metric{color:#f0d293;font-size:12px;font-weight:700}.waypoint-popup-navigate{width:100%;min-height:44px;margin-top:3px;border:1px solid #e5c682;border-radius:10px;background:#d0a65d;color:#19140d;font-size:14px;font-weight:800;touch-action:manipulation}.waypoint-popup-navigate:focus{outline:2px solid #fff2a8;outline-offset:2px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
@@ -103,7 +98,7 @@ function buildMapHtml({ token, polygon, features, relationships, waypoints, base
 window.onerror=function(message){post('map-error',{message:String(message||'Map failed to load.')})};
 mapboxgl.accessToken=${safeJson(token)};
 const polygon=${safeJson(polygon)};
-const features=${safeJson(features || [])};
+const features=${safeJson(collections.features)};
 const relationships=${safeJson(mapRelationships)};
 const waypoints=${safeJson(mapWaypoints)};
 const style=${safeJson(style)};

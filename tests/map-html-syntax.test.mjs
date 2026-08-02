@@ -3,13 +3,15 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import { mapBuildCollections, safeJson, terrainMapViewport } from "../src/map-html-runtime.js";
+import { safeBuildMapSource } from "../src/map-runtime.js";
 import { relationshipsToGeoJson } from "../src/terrain-map.js";
 
 test("generated waypoint popup HTML contains parseable WebView JavaScript", async () => {
   const source = await readFile(new URL("../App.tsx", import.meta.url), "utf8");
   const file = ts.createSourceFile("App.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const functions = file.statements
-    .filter((node) => ts.isFunctionDeclaration(node) && ["safeJson", "buildMapHtml"].includes(node.name?.text))
+    .filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === "buildMapHtml")
     .map((node) => node.getFullText(file))
     .join("\n");
   assert.ok(functions.includes("buildMapHtml"));
@@ -20,8 +22,11 @@ test("generated waypoint popup HTML contains parseable WebView JavaScript", asyn
   const context = {
     USGS_TERRAIN_OVERLAY_OPTIONS: [],
     USGS_3DEP_WMS_BASE: "https://example.invalid",
+    mapBuildCollections,
     mapboxStyleFor: () => "mapbox://styles/mapbox/outdoors-v12",
     relationshipsToGeoJson,
+    safeJson,
+    terrainMapViewport,
     waypointDetails: (waypoint) => ({
       eyebrow: "SELECTED WAYPOINT",
       title: waypoint.title,
@@ -49,7 +54,7 @@ test("generated waypoint popup HTML contains parseable WebView JavaScript", asyn
       initialAnalysisFit: true,
     },
   };
-  vm.runInNewContext(`${javascript}\nthis.html = buildMapHtml(this.args);`, context);
+  vm.runInNewContext(`${javascript}\nthis.buildMapHtml = buildMapHtml; this.html = buildMapHtml(this.args);`, context);
 
   const marker = "<script>(function(){";
   const start = context.html.indexOf(marker);
@@ -60,4 +65,19 @@ test("generated waypoint popup HTML contains parseable WebView JavaScript", asyn
   assert.doesNotMatch(context.html, /<img onerror=bad>/);
   assert.match(inlineScript, /\.setDOMContent\(content\)/);
   assert.match(inlineScript, /analysis-relationships-line/);
+
+  const emptyMap = safeBuildMapSource(context.buildMapHtml, {
+    ...context.args,
+    polygon: null,
+    features: undefined,
+    relationships: undefined,
+    waypoints: undefined,
+    editable: true,
+    initialAnalysisFit: false,
+  }, { platform: "android", setupActive: true });
+  assert.equal(emptyMap.ok, true);
+  assert.match(emptyMap.source.html, /centerSafe\(\)/);
+  assert.match(emptyMap.source.html, /zoom:initialCamera&&initialCamera\.zoom\|\|4/);
+  assert.match(emptyMap.source.html, /\[-84\.5,33\]/);
+  assert.match(emptyMap.source.html, /Tap to add boundary points/);
 });
