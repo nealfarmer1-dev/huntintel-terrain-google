@@ -29,6 +29,8 @@ test("saved analysis polygons retain their first coordinate and detail zoom", ()
 
 test("map HTML serialization and collections tolerate absent optional input", () => {
   assert.equal(safeJson(undefined), "null");
+  assert.equal(safeJson(null), "null");
+  assert.equal(safeJson([]), "[]");
   assert.equal(safeJson("<script>"), '"\\u003cscript>"');
   assert.deepEqual(mapBuildCollections(), {
     features: [],
@@ -39,5 +41,17 @@ test("map HTML serialization and collections tolerate absent optional input", ()
     features: [],
     relationships: [],
     waypoints: [],
+  });
+});
+
+test("map HTML serialization preserves current circular-data and BigInt failures", () => {
+  const circular = {};
+  circular.self = circular;
+
+  assert.throws(() => safeJson(circular), {
+    name: "TypeError",
+  });
+  assert.throws(() => safeJson(1n), {
+    name: "TypeError",
   });
 });

@@ -48,7 +48,7 @@ import { restoreSession } from "./src/auth";
 import { AppLoadingScreen, ErrorState, LayerSheet } from "./src/NativeUi";
 import { LOCATION_PERMISSION_MESSAGE, LOCATION_UNAVAILABLE_MESSAGE, acquireCenterLocation, centerLocationJavaScript } from "./src/location-control";
 import { NativeTerrainMap, TerrainMapErrorBoundary } from "./src/NativeTerrainMap";
-import { safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } from "./src/map-runtime";
+import { runMapBuildStage, safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } from "./src/map-runtime";
 import { mapBuildCollections, safeJson, terrainMapViewport } from "./src/map-html-runtime";
 
 const MIN_ACRES = 5;
@@ -85,36 +85,57 @@ function analysisModeLabel(value: string | undefined) {
 }
 
 function buildMapHtml({ token, polygon, features, relationships, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled, camera, initialAnalysisFit }: any) {
-  const style = mapboxStyleFor(basemap);
-  const { center, zoom } = terrainMapViewport(polygon);
-  const collections = mapBuildCollections({ features, relationships, waypoints });
-  const overlay = USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer);
-  const mapWaypoints = collections.waypoints.map((waypoint: any) => ({ ...waypoint, __popup: waypointDetails(waypoint) }));
-  const mapRelationships = relationshipsToGeoJson(collections.relationships, collections.features);
-  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  const prepared = runMapBuildStage("input_preparation", () => ({
+    style: mapboxStyleFor(basemap),
+    ...terrainMapViewport(polygon),
+    collections: mapBuildCollections({ features, relationships, waypoints }),
+    overlay: USGS_TERRAIN_OVERLAY_OPTIONS.find((option: any) => option.value === terrainOverlay && option.layer),
+  }));
+  const mapRelationships = runMapBuildStage("relationship_conversion", () =>
+    relationshipsToGeoJson(prepared.collections.relationships, prepared.collections.features));
+  const mapWaypoints = runMapBuildStage("waypoint_preparation", () =>
+    prepared.collections.waypoints.map((waypoint: any) => ({ ...waypoint, __popup: waypointDetails(waypoint) })));
+  const serialized = runMapBuildStage("safe_json_serialization", () => ({
+    token: safeJson(token),
+    polygon: safeJson(polygon),
+    features: safeJson(prepared.collections.features),
+    relationships: safeJson(mapRelationships),
+    waypoints: safeJson(mapWaypoints),
+    style: safeJson(prepared.style),
+    overlay: safeJson(prepared.overlay || null),
+    labelsVisible: safeJson(labelsVisible),
+    layerPreferences: safeJson(layerPreferences || {analysis:{boundary:true,waypoints:true,features:true,relationships:true},field:{current_location:true}}),
+    editable: safeJson(editable),
+    initialUserLocation: safeJson(userLocation || null),
+    initialUserLocationEnabled: safeJson(Boolean(userLocationEnabled)),
+    initialCamera: safeJson(camera || null),
+    initialAnalysisFit: safeJson(Boolean(initialAnalysisFit)),
+    center: safeJson(prepared.center),
+  }));
+  return runMapBuildStage("final_html_assembly", () => `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
 <style>html,body,#map{margin:0;width:100%;height:100%;background:#0b0f0c;overflow:hidden;font-family:Arial,sans-serif}.view-controls{position:absolute;top:10px;left:10px;z-index:5;display:flex;gap:5px;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:999px;padding:4px}.view-btn{border:0;border-radius:999px;min-width:31px;min-height:30px;background:rgba(22,32,23,.96);color:#d7e1d3;font-size:11px;font-weight:900}.view-btn.active{background:#8eab77;color:#091008}.hint{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;background:rgba(10,17,8,.86);border:1px solid rgba(111,143,85,.38);border-radius:12px;padding:8px;color:#d7e1d3;font-size:11px}.terrain-waypoint-popup .mapboxgl-popup-content{box-sizing:border-box;width:min(270px,calc(100vw - 40px));max-height:min(290px,calc(100vh - 28px));overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px;border:1px solid #6f8f55;border-radius:14px;background:#111812;color:#f0f3ea;box-shadow:0 8px 24px rgba(0,0,0,.48)}.terrain-waypoint-popup .mapboxgl-popup-close-button{width:44px;height:44px;color:#f0f3ea;font-size:24px}.terrain-waypoint-popup.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip{border-top-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-top .mapboxgl-popup-tip{border-bottom-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip{border-right-color:#111812}.terrain-waypoint-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip{border-left-color:#111812}.waypoint-popup{display:flex;min-width:0;flex-direction:column;gap:7px;padding-right:28px}.waypoint-popup-eyebrow{color:#d0a65d;font-size:10px;font-weight:800;letter-spacing:1.2px}.waypoint-popup-title{font-size:17px;font-weight:800;line-height:1.2}.waypoint-popup-type,.waypoint-popup-reason,.waypoint-popup-geometry{color:#aab7a5;font-size:12px;line-height:1.35}.waypoint-popup-metric{color:#f0d293;font-size:12px;font-weight:700}.waypoint-popup-navigate{width:100%;min-height:44px;margin-top:3px;border:1px solid #e5c682;border-radius:10px;background:#d0a65d;color:#19140d;font-size:14px;font-weight:800;touch-action:manipulation}.waypoint-popup-navigate:focus{outline:2px solid #fff2a8;outline-offset:2px}</style></head><body><div id="map"></div><div class="view-controls"><button class="view-btn" id="toggle-3d">3D</button><button class="view-btn" id="rotate-left">L</button><button class="view-btn" id="rotate-right">R</button><button class="view-btn" id="reset-north">N</button></div><div class="hint">${editable ? "Tap to add boundary points." : "Terrain results map."}</div>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js"></script><script>(function(){
 window.onerror=function(message){post('map-error',{message:String(message||'Map failed to load.')})};
-mapboxgl.accessToken=${safeJson(token)};
-const polygon=${safeJson(polygon)};
-const features=${safeJson(collections.features)};
-const relationships=${safeJson(mapRelationships)};
-const waypoints=${safeJson(mapWaypoints)};
-const style=${safeJson(style)};
-const overlay=${safeJson(overlay || null)};
-const labelsVisible=${safeJson(labelsVisible)};
-const layerPreferences=${safeJson(layerPreferences || {analysis:{boundary:true,waypoints:true,features:true,relationships:true},field:{current_location:true}})};
-const editable=${safeJson(editable)};
-const initialUserLocation=${safeJson(userLocation || null)};
-const initialUserLocationEnabled=${safeJson(Boolean(userLocationEnabled))};
-const initialCamera=${safeJson(camera || null)};
-const initialAnalysisFit=${safeJson(Boolean(initialAnalysisFit))};
-const map=new mapboxgl.Map({container:'map',style:style,center:initialCamera&&initialCamera.center||centerSafe(),zoom:initialCamera&&initialCamera.zoom||${zoom},bearing:initialCamera&&initialCamera.bearing||0,pitch:initialCamera&&initialCamera.pitch||0,projection:'mercator'});
+mapboxgl.accessToken=${serialized.token};
+const polygon=${serialized.polygon};
+const features=${serialized.features};
+const relationships=${serialized.relationships};
+const waypoints=${serialized.waypoints};
+const style=${serialized.style};
+const overlay=${serialized.overlay};
+const labelsVisible=${serialized.labelsVisible};
+const layerPreferences=${serialized.layerPreferences};
+const editable=${serialized.editable};
+const initialUserLocation=${serialized.initialUserLocation};
+const initialUserLocationEnabled=${serialized.initialUserLocationEnabled};
+const initialCamera=${serialized.initialCamera};
+const initialAnalysisFit=${serialized.initialAnalysisFit};
+const map=new mapboxgl.Map({container:'map',style:style,center:initialCamera&&initialCamera.center||centerSafe(),zoom:initialCamera&&initialCamera.zoom||${prepared.zoom},bearing:initialCamera&&initialCamera.bearing||0,pitch:initialCamera&&initialCamera.pitch||0,projection:'mercator'});
 map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}),'top-right');
 let terrainEnabled=false;
 function post(type,payload){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type,payload}));}
-function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinates[0]&&polygon.coordinates[0][0]||${safeJson(center)}}catch(e){return ${safeJson(center)}}}
+function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinates[0]&&polygon.coordinates[0][0]||${serialized.center}}catch(e){return ${serialized.center}}}
 function ensureDem(){if(map.getSource('mapbox-dem'))return true;try{map.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1',tileSize:512,maxzoom:14});return true}catch(e){return false}}
 function set3d(next){terrainEnabled=!!next;if(terrainEnabled&&ensureDem()){map.setTerrain({source:'mapbox-dem',exaggeration:1.45});map.easeTo({pitch:60,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.add('active');return}try{map.setTerrain(null)}catch(e){}map.easeTo({pitch:0,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.remove('active')}
 function consume(e){e.preventDefault();e.stopPropagation()}function ensureUserLocationLayer(){if(map.getSource('user-location'))return;map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',paint:{'circle-radius':8,'circle-color':'#4f9cff','circle-stroke-color':'#fff','circle-stroke-width':3}})}function setUserLocationMarker(location){if(!location||!Number.isFinite(location.longitude)||!Number.isFinite(location.latitude)||!map.isStyleLoaded())return false;ensureUserLocationLayer();map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[location.longitude,location.latitude]},properties:{}}]});return true}window.__terrainCenterLocation=function(location){if(!setUserLocationMarker(location))return false;var zoom=map.getZoom()<12?14:map.getZoom();map.easeTo({center:[location.longitude,location.latitude],zoom:zoom,duration:650});return true};window.__terrainClearLocation=function(){if(map.getSource('user-location'))map.getSource('user-location').setData({type:'FeatureCollection',features:[]})};document.getElementById('toggle-3d').onclick=function(e){consume(e);set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){consume(e);map.easeTo({bearing:0,duration:450})};
@@ -167,7 +188,7 @@ map.on('load',function(){addLayers();if(initialUserLocation&&initialUserLocation
 map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});
 map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
 map.on('error',function(event){post('map-error',{message:event&&event.error&&event.error.message||'Mapbox could not load the map.'})});
-})();</script></body></html>`;
+})();</script></body></html>`);
 }
 
 

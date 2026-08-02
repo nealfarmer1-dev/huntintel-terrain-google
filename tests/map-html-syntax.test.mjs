@@ -4,7 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 import { mapBuildCollections, safeJson, terrainMapViewport } from "../src/map-html-runtime.js";
-import { safeBuildMapSource } from "../src/map-runtime.js";
+import { runMapBuildStage, safeBuildMapSource } from "../src/map-runtime.js";
 import { relationshipsToGeoJson } from "../src/terrain-map.js";
 
 test("generated waypoint popup HTML contains parseable WebView JavaScript", async () => {
@@ -15,6 +15,9 @@ test("generated waypoint popup HTML contains parseable WebView JavaScript", asyn
     .map((node) => node.getFullText(file))
     .join("\n");
   assert.ok(functions.includes("buildMapHtml"));
+  for (const stage of ["input_preparation", "relationship_conversion", "waypoint_preparation", "safe_json_serialization", "final_html_assembly"]) {
+    assert.match(functions, new RegExp(`runMapBuildStage\\(\\"${stage}\\"`));
+  }
 
   const javascript = ts.transpileModule(functions, {
     compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2020 },
@@ -25,6 +28,7 @@ test("generated waypoint popup HTML contains parseable WebView JavaScript", asyn
     mapBuildCollections,
     mapboxStyleFor: () => "mapbox://styles/mapbox/outdoors-v12",
     relationshipsToGeoJson,
+    runMapBuildStage,
     safeJson,
     terrainMapViewport,
     waypointDetails: (waypoint) => ({
@@ -80,4 +84,25 @@ test("generated waypoint popup HTML contains parseable WebView JavaScript", asyn
   assert.match(emptyMap.source.html, /zoom:initialCamera&&initialCamera\.zoom\|\|4/);
   assert.match(emptyMap.source.html, /\[-84\.5,33\]/);
   assert.match(emptyMap.source.html, /Tap to add boundary points/);
+
+  const circular = {};
+  circular.self = circular;
+  const original = console.info;
+  const diagnostics = [];
+  console.info = (message) => diagnostics.push(JSON.parse(message.replace(/^\[terrain-map\] /, "")));
+  try {
+    assert.equal(safeBuildMapSource(context.buildMapHtml, {
+      ...context.args,
+      layerPreferences: circular,
+    }, { platform: "android", setupActive: true }).ok, false);
+    assert.equal(safeBuildMapSource(context.buildMapHtml, {
+      ...context.args,
+      camera: { zoom: 1n },
+    }, { platform: "android", setupActive: true }).ok, false);
+  } finally {
+    console.info = original;
+  }
+  assert.deepEqual(diagnostics.map((entry) => entry.stage), ["safe_json_serialization", "safe_json_serialization"]);
+  assert.deepEqual(diagnostics.map((entry) => entry.exception.name), ["TypeError", "TypeError"]);
+  assert.equal(diagnostics.every((entry) => entry.input.features.isArray && entry.input.features.length === 0), true);
 });
