@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import {
   RecordingPresets,
@@ -108,7 +108,7 @@ export function FieldRecordsScreen({ analysisJobId, waypoints }: Props) {
   }
 
   async function uploadUri(uri: string, attachmentType: "photo" | "voice_note" | "video", contentType?: string | null, durationSeconds?: number | null) {
-    const file = await FileSystem.getInfoAsync(uri, { md5: true, size: true });
+    const file = await FileSystem.getInfoAsync(uri, { md5: true });
     const checksum = file.exists ? file.md5 : null;
     const size = file.exists ? file.size : 0;
     const mime = (contentType || (attachmentType === "photo" ? "image/jpeg" : attachmentType === "video" ? "video/mp4" : "audio/m4a")).toLowerCase();

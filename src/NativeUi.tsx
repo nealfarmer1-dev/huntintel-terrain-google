@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import React from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type ButtonProps = {
   label: string;
@@ -91,11 +92,11 @@ export function LayerSheet({ visible, onClose, children }: { visible: boolean; o
   return <Modal visible={visible} transparent animationType="slide" presentationStyle="overFullScreen" statusBarTranslucent={Platform.OS === "android"} onRequestClose={onClose}>
     <View style={styles.sheetOverlay}>
       <Pressable accessibilityRole="button" accessibilityLabel="Close map layers" style={styles.sheetDismiss} onPress={onClose} />
-      <View accessibilityViewIsModal style={styles.sheet}>
+      <SafeAreaView edges={["bottom"]} accessibilityViewIsModal style={styles.sheet}>
         <View style={styles.sheetHandle} />
         <View style={styles.sheetHeader}><View><Text style={styles.sheetTitle}>Map Layers</Text><Text style={styles.sheetSubtitle}>Choose what appears on the terrain map.</Text></View><SecondaryButton label="Done" onPress={onClose} /></View>
         <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-      </View>
+      </SafeAreaView>
     </View>
   </Modal>;
 }

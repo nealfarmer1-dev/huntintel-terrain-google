@@ -12,7 +12,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +19,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { createAnalysisDraft, deleteAnalysis, deleteAnalyses, fetchAccount, fetchAnalyses, fetchAnalysis, fetchAnalysisPurchase, fetchAttachments, fetchMapConfig, fetchOfflineManifest, fetchRecoverableAnalyses, fetchStorageQuota, pullOfflineSync, pushOfflineSync, setSessionExpiredHandler, terrainApiBaseUrl } from "./src/api";
 import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage, removeOfflinePackage, synchronizeOfflinePackage } from "./src/offline";
@@ -194,6 +194,10 @@ map.on('error',function(event){post('map-error',{message:event&&event.error&&eve
 
 
 export default function App() {
+  return <SafeAreaProvider><TerrainApp /></SafeAreaProvider>;
+}
+
+function TerrainApp() {
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [screen, setScreen] = useState<Screen>("home");
   const [analysisName, setAnalysisName] = useState("");
@@ -338,6 +342,8 @@ export default function App() {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       if (layerSheetVisible) { setLayerSheetVisible(false); return true; }
       if (showAccount) { setShowAccount(false); return true; }
+      if (screen === "payment") { setScreen("setup"); return true; }
+      if (screen === "report" || screen === "waypoint") { setScreen("results"); return true; }
       if (screen !== "home") { setScreen("home"); return true; }
       return false;
     });

@@ -34,10 +34,14 @@
           "isAndroidBackgroundLocationEnabled": false,
           "isAndroidForegroundServiceEnabled": true
         }
-      ]
+      ],
+      "expo-font",
+      "expo-secure-store",
+      "expo-asset"
     ],
     "android": {
       "package": "com.huntintel.terrainintelligence",
+      "edgeToEdgeEnabled": true,
       "icon": "./assets/images/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",

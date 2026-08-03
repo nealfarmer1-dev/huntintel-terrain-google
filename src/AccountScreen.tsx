@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { accountRequest, fetchAccount, fetchStorageQuota } from "./api";
 import { createAccountActionGuard, runDeleteAccountAction, runSignOutAction } from "./account-actions";
 import { clearSession, storeSession } from "./auth";
