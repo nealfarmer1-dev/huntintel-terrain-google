@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { downloadPackageAssets, offlineTile, removePackageMetadata, renderOfflineMapHtml } from "../src/offline-pipeline.js";
+import { OfflineMapModelError, downloadPackageAssets, offlineTile, removePackageMetadata, renderOfflineMapHtml } from "../src/offline-pipeline.js";
+import { safeBuildMapSource } from "../src/map-runtime.js";
 
 const boundary = { type: "Polygon", coordinates: [[[-86, 36], [-85.99, 36], [-85.99, 36.01], [-86, 36]]] };
 const manifest = { analysisJobId: "a", estimatedSizeBytes: 20, immutable: { analysis: { analysisJobId: "a", requestPolygon: boundary }, features: [{ id: "feature-1", geometry: { type: "Point", coordinates: [-86, 36] } }, { id: "feature-2", geometry: { type: "Point", coordinates: [-85.99, 36.01] } }], relationships: [{ id: "relationship-1", sourceFeatureId: "feature-1", targetFeatureId: "feature-2" }] }, map: { region: boundary, tilePlan: { provider: { id: "fixture", attribution: "test fixture" }, maxZoom: 1, tiles: [{ key: "fixture/1/0/0", z: 1, x: 0, y: 0, url: "/tile" }] } }, userRecords: { attachments: [{ id: "att", downloadUrl: "/attachment", contentType: "image/png" }] } };
@@ -9,3 +10,42 @@ test("resumes by skipping cached assets", async () => { const partial = structur
 test("cancellation preserves prior checkpoints", async () => { const controller = new AbortController(); controller.abort(); await assert.rejects(downloadPackageAssets(structuredClone(manifest), { signal: controller.signal, fetchAsset: async () => ({}) }), { name: "AbortError" }); });
 test("enforces actual package size limit", async () => { const limited = structuredClone(manifest); limited.maxPackageBytes = 1; await assert.rejects(downloadPackageAssets(limited, { fetchAsset: async () => ({ dataUrl: "data:x", sizeBytes: 2 }) }), /size limit/); });
 test("removal drops only the selected package metadata", () => assert.deepEqual(removePackageMetadata({ a: {}, b: {} }, "a"), { b: {} }));
+test("offline rendering rejects absent or malformed required models with controlled errors", () => {
+  for (const value of [undefined, null, [], "invalid"]) {
+    assert.throws(() => renderOfflineMapHtml(value), (error) => error instanceof OfflineMapModelError && error.code === "OFFLINE_MAP_MODEL_REQUIRED" && error.mapBuildStage === "offline_input_validation");
+  }
+  const missingMap = { analysisJobId: "a" };
+  assert.throws(() => renderOfflineMapHtml(missingMap), { name: "OfflineMapModelError", message: "OFFLINE_MAP_MAP_REQUIRED" });
+  const missingPlan = { analysisJobId: "a", map: {} };
+  assert.throws(() => renderOfflineMapHtml(missingPlan), { name: "OfflineMapModelError", message: "OFFLINE_MAP_TILE_PLAN_REQUIRED" });
+  const invalidTiles = structuredClone(manifest); invalidTiles.map.tilePlan.tiles = {};
+  assert.throws(() => renderOfflineMapHtml(invalidTiles), { name: "OfflineMapModelError", message: "OFFLINE_MAP_TILES_INVALID" });
+});
+test("offline model failures retain the sanitized diagnostic category and fallback", () => {
+  const original = console.info;
+  const diagnostics = [];
+  console.info = (message) => diagnostics.push(JSON.parse(message.replace(/^\[terrain-map\] /, "")));
+  try {
+    const result = safeBuildMapSource(renderOfflineMapHtml, null, { platform: "android", setupActive: true });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "MAP_HTML_BUILD_FAILED");
+  } finally {
+    console.info = original;
+  }
+  assert.equal(diagnostics[0].stage, "offline_input_validation");
+  assert.equal(diagnostics[0].exception.name, "OfflineMapModelError");
+  assert.equal(diagnostics[0].exception.message, "OFFLINE_MAP_MODEL_REQUIRED");
+  assert.deepEqual(diagnostics[0].input.input, { typeof: "object", isNull: true, isArray: false });
+});
+test("offline rendering defaults genuinely optional array fields without hiding malformed arrays", () => {
+  const optional = structuredClone(manifest);
+  optional.map.tilePlan.tiles = null;
+  optional.immutable.features = null;
+  optional.immutable.relationships = undefined;
+  assert.match(renderOfflineMapHtml(optional), /<!doctype html><html>/);
+
+  const malformedFeatures = structuredClone(manifest); malformedFeatures.immutable.features = {};
+  assert.throws(() => renderOfflineMapHtml(malformedFeatures), { name: "OfflineMapModelError", message: "OFFLINE_MAP_FEATURES_INVALID" });
+  const malformedRelationships = structuredClone(manifest); malformedRelationships.immutable.relationships = "invalid";
+  assert.throws(() => renderOfflineMapHtml(malformedRelationships), { name: "OfflineMapModelError", message: "OFFLINE_MAP_RELATIONSHIPS_INVALID" });
+});

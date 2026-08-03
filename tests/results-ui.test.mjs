@@ -88,10 +88,12 @@ test("waypoint popup is bounded and exposes 44 point close and navigation target
 });
 
 test("native tab and selection state are excluded from memoized map HTML dependencies", () => {
-  const memo = app.match(/const mapSourceResult=useMemo\([\s\S]+?\n  },\[[^\n]+\]\);/)?.[0] || "";
+  const memo = app.match(/const mapSelection=useMemo\([\s\S]+?\n  },\[[^\n]+\]\);/)?.[0] || "";
   assert.ok(memo);
   assert.doesNotMatch(memo, /resultsUi/);
-  assert.match(app, /const usingOfflinePackage = offlineManifest\?\.analysisJobId===analysis\?\.analysisJobId[\s\S]*sourceResult=\{mapSourceResult\}/);
+  assert.match(app, /selectTerrainMapSource\(\{[\s\S]*offlineManifest,[\s\S]*analysis,[\s\S]*buildOffline:[\s\S]*buildOnline:/);
+  assert.match(app, /const \{sourceResult:mapSourceResult,usingOfflinePackage\}=mapSelection/);
+  assert.match(app, /sourceResult=\{mapSourceResult\}[\s\S]*offline=\{usingOfflinePackage\}/);
 });
 
 test("native report PDF field records and exact analysis identifiers remain wired without Analysis Tour", () => {

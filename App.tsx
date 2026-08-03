@@ -50,6 +50,7 @@ import { LOCATION_PERMISSION_MESSAGE, LOCATION_UNAVAILABLE_MESSAGE, acquireCente
 import { NativeTerrainMap, TerrainMapErrorBoundary } from "./src/NativeTerrainMap";
 import { runMapBuildStage, safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } from "./src/map-runtime";
 import { mapBuildCollections, safeJson, terrainMapViewport } from "./src/map-html-runtime";
+import { selectTerrainMapSource } from "./src/map-source-selection";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -258,13 +259,17 @@ export default function App() {
           : setupPhase==="quoted"
             ? "Acreage and price are confirmed. Analyze Terrain is ready."
             : "Step 3: confirm server acreage and price.";
-  const mapSourceResult=useMemo(()=>{
-    if (!HAS_MAPBOX_ACCESS_TOKEN) return {ok:false,source:null,code:"MAP_CONFIG_UNAVAILABLE",userMessage:TERRAIN_MAP_FAILURE_MESSAGE};
-    const usingOfflinePackage=offlineManifest?.analysisJobId===analysis?.analysisJobId;
-    if(usingOfflinePackage)return safeBuildMapSource(()=>renderOfflineMapHtml(offlineManifest,layerPreferences),null,{platform:Platform.OS,setupActive:screen==="setup"});
+  const mapSelection=useMemo(()=>{
+    if (!HAS_MAPBOX_ACCESS_TOKEN) return {usingOfflinePackage:false,sourceResult:{ok:false,source:null,code:"MAP_CONFIG_UNAVAILABLE",userMessage:TERRAIN_MAP_FAILURE_MESSAGE}};
     const nextPolygon=analysis?analysis.requestPolygon:polygon;
-    return safeBuildMapSource(buildMapHtml,{token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],relationships:analysis?.relationships||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup"&&!analysis,userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)},{platform:Platform.OS,setupActive:screen==="setup"});
+    return selectTerrainMapSource({
+      offlineManifest,
+      analysis,
+      buildOffline:(manifest:any)=>safeBuildMapSource((value:any)=>renderOfflineMapHtml(value,layerPreferences),manifest,{platform:Platform.OS,setupActive:screen==="setup"}),
+      buildOnline:()=>safeBuildMapSource(buildMapHtml,{token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],relationships:analysis?.relationships||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup"&&!analysis,userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)},{platform:Platform.OS,setupActive:screen==="setup"}),
+    });
   },[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,offlineManifest,mapBuildAttempt]);
+  const {sourceResult:mapSourceResult,usingOfflinePackage}=mapSelection;
   const mapHeight = Math.max(320, Math.min(520, Math.round(windowHeight * .52)));
   const refreshLocationPermission = useCallback(async () => {
     try {
@@ -556,7 +561,6 @@ export default function App() {
   );
 
   const renderMap = () => {
-    const usingOfflinePackage = offlineManifest?.analysisJobId===analysis?.analysisJobId;
     const locationControl = <Pressable
         accessibilityRole="button"
         accessibilityLabel="Center map on current location"

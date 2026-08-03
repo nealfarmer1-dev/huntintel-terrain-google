@@ -128,6 +128,9 @@ test("Google map boundary has fallback, test seam, renderer recovery, and platfo
   assert.match(source, /onContentProcessDidTerminate/);
   assert.match(source, /activeInstance\.current !== reload/);
   assert.match(source, /onRetrySource\?\.\(\)/);
+  assert.match(source, /const failSource =/);
+  assert.match(source, /if \(!sourceResult\.ok\) failSource\(sourceResult\.userMessage\)/);
+  assert.doesNotMatch(source, /if \(!sourceResult\.ok\) fail\(/);
 });
 
 test("Google release inputs retain native WebView dependency and Android implementation", async () => {

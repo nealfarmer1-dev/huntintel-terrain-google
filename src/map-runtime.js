@@ -17,6 +17,7 @@ const SAFE_MAP_BUILD_STAGES = new Set([
   "input_preparation",
   "relationship_conversion",
   "waypoint_preparation",
+  "offline_input_validation",
   "safe_json_serialization",
   "final_html_assembly",
   "html_validation",

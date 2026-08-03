@@ -58,6 +58,11 @@ export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onSt
     updateStatus("error");
     terrainMapDiagnostic(event, { platform: Platform.OS, stage: "webview", category, setupActive: true });
   };
+  const failSource = (message = TERRAIN_MAP_FAILURE_MESSAGE) => {
+    retry.current.finish();
+    setErrorMessage(message);
+    updateStatus("error");
+  };
   const ready = () => {
     retry.current.finish();
     updateStatus("ready");
@@ -77,7 +82,7 @@ export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onSt
   useEffect(() => {
     const wasValid = previousSourceOk.current;
     previousSourceOk.current = sourceResult.ok;
-    if (!sourceResult.ok) fail(sourceResult.code, sourceResult.userMessage);
+    if (!sourceResult.ok) failSource(sourceResult.userMessage);
     else if (!wasValid) {
       retry.current.finish();
       setErrorMessage(TERRAIN_MAP_FAILURE_MESSAGE);
