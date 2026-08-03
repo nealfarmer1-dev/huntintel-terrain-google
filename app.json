@@ -57,7 +57,8 @@
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "blockedPermissions": [
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "extra": {
