@@ -7,6 +7,7 @@ import { createAccountActionGuard, runDeleteAccountAction, runSignOutAction } fr
 import { clearSession, storeSession } from "./auth";
 import { listOfflinePackages } from "./offline";
 import { PasswordField } from "./PasswordField";
+import { HelpSupportScreen } from "./HelpSupportScreen";
 
 type Mode = "login" | "register" | "verify" | "forgot" | "reset" | "security";
 const TERMS_URL = "https://app.huntintelapp.com/legal/terms";
@@ -50,6 +51,7 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [signOutMessage, setSignOutMessage] = useState("");
   const [deleteAccountMessage, setDeleteAccountMessage] = useState("");
+  const [showHelpSupport, setShowHelpSupport] = useState(false);
   const signOutGuard = useRef(createAccountActionGuard());
   const deleteAccountGuard = useRef(createAccountActionGuard());
   const deleteDialogOpen = useRef(false);
@@ -62,6 +64,8 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
     Promise.all([fetchStorageQuota().catch(() => null), listOfflinePackages().catch(() => [])]).then(([nextQuota, downloads]) => { setQuota(nextQuota); setDownloadCount(downloads.length); });
     Location.getForegroundPermissionsAsync().then((result) => setLocationPermission(result.status === "granted" ? "Allowed while using the app" : result.status === "denied" ? "Not allowed" : "Not requested")).catch(() => setLocationPermission("Unavailable"));
   }, [user]);
+
+  if (showHelpSupport) return <HelpSupportScreen onClose={() => setShowHelpSupport(false)} />;
 
   const submit = async () => {
     const paths: Record<string, string> = { login: "/login", register: "/register", verify: "/verify-email", forgot: "/forgot-password", reset: "/reset-password" };
@@ -132,7 +136,7 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
       <Section title="Location Permission"><Text style={styles.value}>{locationPermission}</Text><Button label="Open Device Settings" onPress={() => { void Linking.openSettings(); }} /></Section>
       <Section title="Purchases"><Text style={styles.meta}>Recoverable terrain purchases are checked securely at startup and appear in My Analyses.</Text><Button label="Review Purchase Recovery" onPress={onOpenAnalyses} /></Section>
       <Section title="Subscription"><Text style={styles.meta}>Terrain analyses are one-time purchases. No Terrain subscription is currently required.</Text></Section>
-      <Section title="Help & Legal"><Button label="Contact Support" onPress={() => { void Linking.openURL("mailto:support@huntintelapp.com"); }} /><Button label="Terms of Use" onPress={() => { void Linking.openURL(TERMS_URL); }} /><Button label="Privacy Policy" onPress={() => { void Linking.openURL(PRIVACY_URL); }} /></Section>
+      <Section title="Help & Legal"><Button label="Help & Support" accessibilityLabel="Open Help and Support" onPress={() => setShowHelpSupport(true)} /><Button label="Terms of Use" onPress={() => { void Linking.openURL(TERMS_URL); }} /><Button label="Privacy Policy" onPress={() => { void Linking.openURL(PRIVACY_URL); }} /></Section>
       <Section title="About HuntIntel Terrain Intelligence"><Text style={styles.meta}>Deterministic terrain analysis powered by the HuntIntel Terrain Intelligence Engine (HTIE).</Text><Text style={styles.value}>App Version {appVersion}</Text></Section>
       <Section title="Account Security">
         <PasswordField style={styles.input} value={password} onChangeText={setPassword} placeholder="Current password" placeholderTextColor="#82907e" textContentType="password" autoComplete="current-password" />
@@ -171,6 +175,7 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
     {mode === "verify" && <Button label="Resend Verification" onPress={async () => { try { await accountRequest("/resend-verification", { email }); setMessage("Verification email requested."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to resend."); } }} />}
     {!["login"].includes(mode) && <Button label="Back to Sign In" onPress={() => setMode("login")} />}
     {mode === "forgot" && <Button label="I have a reset token" onPress={() => setMode("reset")} />}
+    <Button label="Help & Support" accessibilityLabel="Open Help and Support without signing in" onPress={() => setShowHelpSupport(true)} />
     {!!message && <Text accessibilityLiveRegion="polite" style={styles.meta}>{message}</Text>}
   </View></ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }
