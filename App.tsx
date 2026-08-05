@@ -27,7 +27,7 @@ import { downloadAndSaveOfflinePackage, listOfflinePackages, loadOfflinePackage,
 import { renderOfflineMapHtml } from "./src/offline-pipeline";
 import { ACTIVE_KEY } from "./src/navigation-background";
 import { stopSarBackground } from "./src/sar-background";
-import { DEFAULT_LAYER_PREFERENCES, normalizeLayerPreferences, toggleLayer } from "./src/map-layers";
+import { DEFAULT_LAYER_PREFERENCES, breadcrumbLayerStatus, normalizeLayerPreferences, shouldApplyHydratedActiveBreadcrumb, shouldShowBreadcrumbEmptyState, toggleLayer } from "./src/map-layers";
 import { AccountScreen } from "./src/AccountScreen";
 import { LibraryScreen } from "./src/LibraryScreen";
 import { TeamsScreen } from "./src/TeamsScreen";
@@ -53,7 +53,7 @@ import { runMapBuildStage, safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } fro
 import { mapBuildCollections, safeJson, terrainMapViewport } from "./src/map-html-runtime";
 import { selectTerrainMapSource } from "./src/map-source-selection";
 import { createForegroundLocationController, updateLocationJavaScript } from "./src/live-location";
-import { appendBreadcrumbDisplayPoint, breadcrumbRecordsFromOffline, breadcrumbsFeatureCollection, setBreadcrumbsJavaScript } from "./src/breadcrumb-geometry";
+import { appendBreadcrumbDisplayPoint, breadcrumbRecordsFromOffline, breadcrumbsFeatureCollection, hasBreadcrumbPoints, setBreadcrumbsJavaScript } from "./src/breadcrumb-geometry";
 import { sarAssignmentsFeatureCollection, sarPositionsFeatureCollection, setSarAssignmentsJavaScript, setSarPositionsJavaScript } from "./src/sar-map";
 import { useSarController } from "./src/useSarController";
 
@@ -237,6 +237,7 @@ function TerrainApp() {
   const [resultsUi, setResultsUi] = useState<any>(createResultsState());
   const [navigationTargetEntity, setNavigationTargetEntity] = useState<any>(null);
   const [navigationRequestNonce, setNavigationRequestNonce] = useState(0);
+  const [navigationRevealNonce, setNavigationRevealNonce] = useState(0);
   const [basemap, setBasemap] = useState("satellite");
   const [terrainOverlay, setTerrainOverlay] = useState("");
   const [labelsVisible, setLabelsVisible] = useState(true);
@@ -245,6 +246,7 @@ function TerrainApp() {
   const [locationFollow, setLocationFollow] = useState(false);
   const [persistedBreadcrumbs, setPersistedBreadcrumbs] = useState<any[]>([]);
   const [activeBreadcrumb, setActiveBreadcrumb] = useState<any>(null);
+  const [breadcrumbLoadState, setBreadcrumbLoadState] = useState<{ analysisJobId: string | null; status: "idle" | "loading" | "ready" | "unavailable" }>({ analysisJobId: null, status: "idle" });
   const [locatingUser, setLocatingUser] = useState(false);
   const [account, setAccount] = useState<any>(undefined);
   const accountRef = useRef<any>(undefined);
@@ -273,11 +275,12 @@ function TerrainApp() {
   const [homeError, setHomeError] = useState("");
   const [purchase,setPurchase]=useState<any>(null);
   const [quotedSetupKey,setQuotedSetupKey]=useState<string|null>(null),[hadQuote,setHadQuote]=useState(false),[quoteLoading,setQuoteLoading]=useState(false);
-  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),mapWebRef=useRef<any>(null),pendingLocationCenter=useRef<MapPoint|null>(null),analysisLoadGeneration=useRef(0),appScrollRef=useRef<ScrollView|null>(null);
+  const quoteRequest=useRef(false),mapCamera=useRef<any>(null),mapWebRef=useRef<any>(null),pendingLocationCenter=useRef<MapPoint|null>(null),analysisLoadGeneration=useRef(0),appScrollRef=useRef<ScrollView|null>(null),breadcrumbDataAnalysisIdRef=useRef<string|null>(null),breadcrumbDisplayRevisionRef=useRef(0),breadcrumbHydrationRequestRef=useRef(0);
   const locationFollowRef=useRef(false),activeAnalysisIdRef=useRef<string|null>(null),analysisRef=useRef<any>(null),locationControllerRef=useRef<any>(null);
   if(!locationControllerRef.current)locationControllerRef.current=createForegroundLocationController(Location,{onLocation:(location:any)=>{setUserLocation(location);setUserLocationEnabled(true);mapWebRef.current?.injectJavaScript(locationFollowRef.current?centerLocationJavaScript(location):updateLocationJavaScript(location));},onError:()=>{setUserLocationEnabled(false);setLocationFollow(false);locationFollowRef.current=false;}});
   const sar=useSarController({enabled:Boolean(account),currentLocation:userLocation});
   analysisRef.current=analysis;
+  const updateActiveBreadcrumbDisplay=useCallback((value:any)=>{breadcrumbDisplayRevisionRef.current+=1;setActiveBreadcrumb(value);},[]);
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -314,8 +317,41 @@ function TerrainApp() {
   const mapHeight = Math.max(320, Math.min(520, Math.round(windowHeight * .52)));
   const analysisJobId=analysis?.analysisJobId||savedAnalysisId||null;
   activeAnalysisIdRef.current=analysisJobId;
-  const breadcrumbGeoJson=useMemo(()=>breadcrumbsFeatureCollection([persistedBreadcrumbs,activeBreadcrumb?[activeBreadcrumb]:[]],analysisJobId as any),[persistedBreadcrumbs,activeBreadcrumb,analysisJobId]);
-  const hydrateBreadcrumbs=useCallback(async(id:string|null)=>{if(!id){setPersistedBreadcrumbs([]);setActiveBreadcrumb(null);return;}const generation=analysisLoadGeneration.current;const[remote,activeValue,offlineValues,fallbackValue]=await Promise.all([fetchBreadcrumbs(id).catch(()=>({items:[]})),SecureStore.getItemAsync(ACTIVE_KEY).catch(()=>null),listOfflinePackages().catch(()=>[]),SecureStore.getItemAsync("terrain.pendingBreadcrumbFallback.v1").catch(()=>null)]);if(generation!==analysisLoadGeneration.current||activeAnalysisIdRef.current!==id)return;const active=JSON.parse(activeValue||"null"),fallback=JSON.parse(fallbackValue||"[]").filter((value:any)=>value.analysisJobId===id).map((value:any)=>({id:value.breadcrumbId,analysisJobId:id,points:[value.point]})),offline=offlineValues.find((value:any)=>value.analysisJobId===id);setPersistedBreadcrumbs([remote,...breadcrumbRecordsFromOffline(offline,id),...fallback]);setActiveBreadcrumb(active?.analysisJobId===id?active:null);},[]);
+  const hasSelectedAnalysis=Boolean(analysis&&analysisJobId);
+  const breadcrumbDataCurrent=breadcrumbLoadState.analysisJobId===analysisJobId;
+  const scopedActiveBreadcrumb=hasSelectedAnalysis&&breadcrumbDataCurrent?activeBreadcrumb:null;
+  const breadcrumbInputs=useMemo(()=>hasSelectedAnalysis&&breadcrumbDataCurrent?[persistedBreadcrumbs,scopedActiveBreadcrumb?[scopedActiveBreadcrumb]:[]]:[],[hasSelectedAnalysis,breadcrumbDataCurrent,persistedBreadcrumbs,scopedActiveBreadcrumb]);
+  const breadcrumbGeoJson=useMemo(()=>breadcrumbsFeatureCollection(breadcrumbInputs,analysisJobId as any),[breadcrumbInputs,analysisJobId]);
+  const hasRecordedBreadcrumbPoints=useMemo(()=>hasBreadcrumbPoints(breadcrumbInputs,analysisJobId as any),[breadcrumbInputs,analysisJobId]);
+  const breadcrumbVisible=layerPreferences.field?.breadcrumbs!==false;
+  const breadcrumbRecording=scopedActiveBreadcrumb?.status==="active";
+  const breadcrumbLoading=Boolean(analysisJobId&&(!breadcrumbDataCurrent||breadcrumbLoadState.status==="loading"));
+  const breadcrumbUnavailable=breadcrumbDataCurrent&&breadcrumbLoadState.status==="unavailable";
+  const breadcrumbStatus=breadcrumbLayerStatus({visible:breadcrumbVisible,loading:breadcrumbLoading,unavailable:breadcrumbUnavailable,hasRecordedPoints:hasRecordedBreadcrumbPoints,recording:breadcrumbRecording,hasSelectedAnalysis});
+  const showBreadcrumbEmptyState=shouldShowBreadcrumbEmptyState({visible:breadcrumbVisible,loading:breadcrumbLoading,unavailable:breadcrumbUnavailable,hasRecordedPoints:hasRecordedBreadcrumbPoints,recording:breadcrumbRecording,hasSelectedAnalysis});
+  const hydrateBreadcrumbs=useCallback(async(id:string|null)=>{
+    const requestId=++breadcrumbHydrationRequestRef.current;
+    if(!id){breadcrumbDataAnalysisIdRef.current=null;setPersistedBreadcrumbs([]);setActiveBreadcrumb(null);setBreadcrumbLoadState({analysisJobId:null,status:"idle"});return;}
+    if(breadcrumbDataAnalysisIdRef.current!==id){breadcrumbDataAnalysisIdRef.current=id;setPersistedBreadcrumbs([]);setActiveBreadcrumb(null);}
+    const generation=analysisLoadGeneration.current,startRevision=breadcrumbDisplayRevisionRef.current;
+    setBreadcrumbLoadState({analysisJobId:id,status:"loading"});
+    const capture=async(promise:Promise<any>,fallback:any)=>{try{return{ok:true,value:await promise};}catch{return{ok:false,value:fallback};}};
+    try{
+      const[remoteResult,activeResult,offlineResult,fallbackResult]=await Promise.all([
+        capture(fetchBreadcrumbs(id),{items:[]}),
+        capture(SecureStore.getItemAsync(ACTIVE_KEY),null),
+        capture(listOfflinePackages(),[]),
+        capture(SecureStore.getItemAsync("terrain.pendingBreadcrumbFallback.v1"),null),
+      ]);
+      if(requestId!==breadcrumbHydrationRequestRef.current||generation!==analysisLoadGeneration.current||activeAnalysisIdRef.current!==id)return;
+      const active=JSON.parse(activeResult.value||"null"),fallback=JSON.parse(fallbackResult.value||"[]").filter((value:any)=>value.analysisJobId===id).map((value:any)=>({id:value.breadcrumbId,analysisJobId:id,points:[value.point]})),offline=offlineResult.value.find((value:any)=>value.analysisJobId===id);
+      setPersistedBreadcrumbs([remoteResult.value,...breadcrumbRecordsFromOffline(offline,id),...fallback]);
+      if(shouldApplyHydratedActiveBreadcrumb({requestId,currentRequestId:breadcrumbHydrationRequestRef.current,startRevision,currentRevision:breadcrumbDisplayRevisionRef.current}))setActiveBreadcrumb(active?.analysisJobId===id?active:null);
+      setBreadcrumbLoadState({analysisJobId:id,status:[remoteResult,activeResult,offlineResult,fallbackResult].every((result)=>result.ok)?"ready":"unavailable"});
+    }catch{
+      if(requestId===breadcrumbHydrationRequestRef.current&&generation===analysisLoadGeneration.current&&activeAnalysisIdRef.current===id){if(shouldApplyHydratedActiveBreadcrumb({requestId,currentRequestId:breadcrumbHydrationRequestRef.current,startRevision,currentRevision:breadcrumbDisplayRevisionRef.current}))setActiveBreadcrumb(null);setBreadcrumbLoadState({analysisJobId:id,status:"unavailable"});}
+    }
+  },[]);
   const refreshLocationPermission = useCallback(async () => {
     try {
       const permission = await Location.getForegroundPermissionsAsync();
@@ -368,7 +404,7 @@ function TerrainApp() {
   }, [refreshLocationPermission, restoreAccount, restoreNonce, hydrateBreadcrumbs,sar.setAppActive]);
   useEffect(()=>{void hydrateBreadcrumbs(analysisJobId);},[analysisJobId,hydrateBreadcrumbs]);
   useEffect(()=>{if(mapStatus==="ready")mapWebRef.current?.injectJavaScript(setBreadcrumbsJavaScript(breadcrumbGeoJson));},[breadcrumbGeoJson,mapStatus]);
-  useEffect(()=>{if(screen!=="sar"||!userLocation?.recordedAt)return;setActiveBreadcrumb((current:any)=>appendBreadcrumbDisplayPoint(current,userLocation,analysisJobId));},[screen,userLocation?.recordedAt,analysisJobId]);
+  useEffect(()=>{if(screen!=="sar"||!userLocation?.recordedAt)return;updateActiveBreadcrumbDisplay((current:any)=>appendBreadcrumbDisplayPoint(current,userLocation,analysisJobId));},[screen,userLocation?.recordedAt,analysisJobId,updateActiveBreadcrumbDisplay]);
   useEffect(()=>{if(mapStatus==="ready")mapWebRef.current?.injectJavaScript(setSarPositionsJavaScript(sarPositionsGeoJson,layerPreferences.team?.team_positions!==false));},[sarPositionsGeoJson,mapStatus,layerPreferences.team?.team_positions]);
   useEffect(()=>{if(mapStatus==="ready")mapWebRef.current?.injectJavaScript(setSarAssignmentsJavaScript(sarAssignmentsGeoJson));},[sarAssignmentsGeoJson,mapStatus]);
   useEffect(()=>{if(!account){setPaymentRecoveryReady(false);return;}let active=true;(async()=>{try{const[hint,recoverable]=await Promise.all([loadPaymentRecoveryHint(SecureStore),fetchRecoverableAnalyses()]);if(!active)return;setPendingAnalyses(recoverable.items||[]);if(hint?.draftId){const restored=await fetchAnalysisPurchase(hint.draftId);if(active){setPurchase(restored);setScreen("payment");}}}catch{}finally{if(active)setPaymentRecoveryReady(true);}})();return()=>{active=false};},[account]);
@@ -403,10 +439,10 @@ function TerrainApp() {
   const revealNavigationPanel=useCallback((nativeHandle:number)=>{appScrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(nativeHandle,24,true);},[]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
   const invalidatePurchase=()=>{if(purchase?.quote){setHadQuote(true);setError("Setup changed. Confirm acreage and price again.");}setPurchase(null);setQuotedSetupKey(null);};
-  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setNavigationRequestNonce(0);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setLibraryReturnScreen(null);setError("");mapCamera.current=null;setScreen("setup");};
+  const resetSetup=()=>{analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setNavigationRequestNonce(0);setNavigationRevealNonce(0);setAnalysisName("");setPoints([]);setPurchase(null);setQuotedSetupKey(null);setHadQuote(false);setQuoteLoading(false);setLibraryReturnScreen(null);setError("");mapCamera.current=null;setScreen("setup");};
 
   const loadLibrary = async (page = 1) => {
-    analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setNavigationRequestNonce(0);setScreen("library"); setLibraryLoading(true); setError("");
+    analysisLoadGeneration.current+=1;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState());setNavigationTargetEntity(null);setNavigationRequestNonce(0);setNavigationRevealNonce(0);setScreen("library"); setLibraryLoading(true); setError("");
     try { const[nextLibrary,recoverable,nextOffline]=await Promise.all([fetchAnalyses(page,12),fetchRecoverableAnalyses(),listOfflinePackages()]);setLibrary(nextLibrary);setPendingAnalyses(recoverable.items||[]);setOfflinePackages(nextOffline); }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Unable to load My Analyses."); }
     finally { setLibraryLoading(false); }
@@ -450,6 +486,7 @@ function TerrainApp() {
     setResultsUi(createResultsState());
     setNavigationTargetEntity(null);
     setNavigationRequestNonce(0);
+    setNavigationRevealNonce(0);
     setUserLocation(null);
     setUserLocationEnabled(false);
     setLocationFollow(false);
@@ -482,7 +519,7 @@ function TerrainApp() {
   if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><AppLoadingScreen message="Restoring your analyses…" /></SafeAreaView>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {
-    const generation=++analysisLoadGeneration.current;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);setNavigationRequestNonce(0);
+    const generation=++analysisLoadGeneration.current;setAnalysis(null);setOfflineManifest(null);setInitialFitAnalysisId(null);setResultsUi(createResultsState(analysisJobId));setNavigationTargetEntity(null);setNavigationRequestNonce(0);setNavigationRevealNonce(0);
     try { setError(""); mapCamera.current=null; setScreen("opening"); setSavedAnalysisId(analysisJobId); const next=requireOpenedAnalysis(await fetchAnalysis(analysisJobId),analysisJobId);if(generation!==analysisLoadGeneration.current)return;setInitialFitAnalysisId(analysisJobId);setAnalysis(next);setResultsUi(stateForAnalysis(createResultsState(),analysisJobId));setScreen("results"); }
     catch (nextError) { if(generation!==analysisLoadGeneration.current)return;const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached?.manifest?.analysisJobId===analysisJobId&&cached.manifest.immutable?.analysis?.analysisJobId===analysisJobId) { const immutable = cached.manifest.immutable; const next=withAnalysisBoundary({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report },cached.manifest.map?.region); setInitialFitAnalysisId(analysisJobId); setAnalysis(next); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
@@ -491,7 +528,7 @@ function TerrainApp() {
     if (!analysisJobId) return false;
     if (analysisRef.current?.analysisJobId === analysisJobId) return true;
     const generation=++analysisLoadGeneration.current;
-    setError(""); setSavedAnalysisId(analysisJobId); setAnalysis(null); setOfflineManifest(null); setInitialFitAnalysisId(null); setResultsUi(createResultsState(analysisJobId)); setNavigationTargetEntity(null); setNavigationRequestNonce(0); mapCamera.current=null;
+    setError(""); setSavedAnalysisId(analysisJobId); setAnalysis(null); setOfflineManifest(null); setInitialFitAnalysisId(null); setResultsUi(createResultsState(analysisJobId)); setNavigationTargetEntity(null); setNavigationRequestNonce(0); setNavigationRevealNonce(0); mapCamera.current=null;
     try {
       const next=requireOpenedAnalysis(await fetchAnalysis(analysisJobId),analysisJobId);
       if(generation!==analysisLoadGeneration.current)return false;
@@ -558,7 +595,7 @@ function TerrainApp() {
   };
 
   const submit=()=>{if(analysisNameError){setError(analysisNameError);return;}if(!quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey})){setError("Setup changed or the quote expired. Confirm acreage and price again.");invalidatePurchase();return;}setError("");setScreen("payment");};
-  const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;const completed=withAnalysisBoundary(nextAnalysis,purchase?.draft?.requestPolygon);setOfflineManifest(null);setInitialFitAnalysisId(completed.analysisJobId||null);setAnalysis(completed);setSavedAnalysisId(completed.analysisJobId||"");setResultsUi(createResultsState(completed.analysisJobId||null));setNavigationTargetEntity(null);setNavigationRequestNonce(0);mapCamera.current=null;setScreen("results");};
+  const completePaidAnalysis=async(nextAnalysis:any)=>{analysisLoadGeneration.current+=1;const completed=withAnalysisBoundary(nextAnalysis,purchase?.draft?.requestPolygon);setOfflineManifest(null);setInitialFitAnalysisId(completed.analysisJobId||null);setAnalysis(completed);setSavedAnalysisId(completed.analysisJobId||"");setResultsUi(createResultsState(completed.analysisJobId||null));setNavigationTargetEntity(null);setNavigationRequestNonce(0);setNavigationRevealNonce(0);mapCamera.current=null;setScreen("results");};
   const resumePendingAnalysis=(nextPurchase:any)=>{setPurchase(nextPurchase);setScreen("payment");};
 
   const addLngLatPoint = (point: MapPoint) => {
@@ -568,6 +605,7 @@ function TerrainApp() {
   const selectResultEntity=(type:string,id:string,focus=true)=>{if(!analysis)return;const next=selectEntity(resultsUi,analysis,type,id);setResultsUi(next);const entity=selectedEntity(next,analysis);mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify({type,id:entity?.id||null,category:next.activeCategoryFilter||null,focus})});true;`);};
   const navigateToResult=(entity:any,requestLocation=false)=>{const target=navigationTarget(entity);if(!target)return;setNavigationTargetEntity({...entity,geometry:{type:"Point",coordinates:[target.longitude,target.latitude]}});setResultsUi((current:any)=>({...current,activeResultsTab:"navigation"}));if(requestLocation)setNavigationRequestNonce((current)=>current+1);};
   const navigateToWaypointById=(id:string)=>{const waypoint=navigableWaypointById(analysis,id);if(!waypoint)return;selectResultEntity("waypoint",waypoint.id,false);navigateToResult(waypoint,true);};
+  const openFieldNavigationFromLayers=()=>{if(!analysis||!analysisJobId)return;setResultsUi((current:any)=>({...current,activeResultsTab:"navigation"}));setLayerSheetVisible(false);setNavigationRevealNonce((current)=>current+1);};
 
   const requestLiveLocation = async ({follow=true}={}) => {
     if (locatingUser) return;
@@ -640,7 +678,9 @@ function TerrainApp() {
         <ActionButton label="Labels" onPress={() => setLabelsVisible((current) => !current)} primary={labelsVisible} />
       </View>
       <Text style={styles.meta}>Analysis layers · boundary is immutable and always shown</Text><View style={styles.row}>{Object.keys(layerPreferences.analysis).filter((key)=>key!=="boundary").map((key)=><ActionButton key={key} label={key} onPress={()=>setLayers(toggleLayer(layerPreferences,"analysis",key))} primary={layerPreferences.analysis[key]}/>)}</View>
-      <Text style={styles.meta}>Field layers</Text><View style={styles.row}>{Object.keys(layerPreferences.field).map((key)=><ActionButton key={key} label={key.replace("_"," ")} onPress={()=>setLayers(toggleLayer(layerPreferences,"field",key))} primary={layerPreferences.field[key]}/>)}</View>
+      <Text style={styles.meta}>Field layers</Text>
+      <BreadcrumbLayerControl visible={breadcrumbVisible} status={breadcrumbStatus} showEmpty={showBreadcrumbEmptyState} onToggle={()=>setLayers(toggleLayer(layerPreferences,"field","breadcrumbs"))} onOpenFieldNavigation={openFieldNavigationFromLayers} />
+      <View style={styles.row}>{Object.keys(layerPreferences.field).filter((key)=>key!=="breadcrumbs").map((key)=><ActionButton key={key} label={key.replace("_"," ")} onPress={()=>setLayers(toggleLayer(layerPreferences,"field",key))} primary={layerPreferences.field[key]}/>)}</View>
       <Text style={styles.meta}>GIS layers</Text><View style={styles.row}>{Object.keys(layerPreferences.gis).map((key)=>{const available=key!=="parcels"||mapConfig.providers.some((p:any)=>p.layers?.some((l:any)=>l.type===key));return <ActionButton key={key} label={available?key:`${key} unavailable`} disabled={!available} onPress={()=>setLayers(toggleLayer(layerPreferences,"gis",key))} primary={layerPreferences.gis[key]}/>})}</View>
       <Text style={styles.meta}>Team layers</Text><View style={styles.row}><ActionButton label="Team Positions" onPress={()=>setLayers(toggleLayer(layerPreferences,"team","team_positions"))} primary={layerPreferences.team?.team_positions!==false}/><ActionButton label="Live SAR Controls" onPress={() => setScreen("sar")} /></View>
     </View>
@@ -772,7 +812,7 @@ function TerrainApp() {
             <SelectedResultDetail analysis={analysis} resultsUi={resultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} />
             <View style={styles.reportPanel}><Text style={styles.sectionTitle}>{analysis.report?.title || "HTIE Report"}</Text><Text style={styles.meta}>{analysis.report?.overview || "No overview returned."}</Text><Text style={styles.sectionSubtitle}>Key Findings</Text>{(analysis.report?.keyFindings||[]).map((finding:string,index:number)=><Text key={`finding-${index}`} style={styles.meta}>• {finding}</Text>)}{analysis.report?.huntingStrategy?<><Text style={styles.sectionSubtitle}>Hunting Strategy</Text>{(Array.isArray(analysis.report.huntingStrategy)?analysis.report.huntingStrategy:[analysis.report.huntingStrategy]).map((item:string,index:number)=><Text key={`strategy-${index}`} style={styles.meta}>• {item}</Text>)}</>:null}<Text style={styles.sectionSubtitle}>Scouting Notes</Text>{(analysis.report?.scoutingNotes||[]).map((note:string,index:number)=><Text key={`scouting-${index}`} style={styles.meta}>• {note}</Text>)}<Text style={styles.sectionSubtitle}>Limitations</Text>{(analysis.report?.limitations||[]).map((item:string,index:number)=><Text key={`limitation-${index}`} style={styles.meta}>• {item}</Text>)}</View>
             {!!(analysis.analysisJobId || savedAnalysisId) && <PdfReportPanel key={analysis.analysisJobId || savedAnalysisId} analysisJobId={analysis.analysisJobId || savedAnalysisId} />}
-            <AnalysisResultsTabs analysis={analysis} analysisJobId={analysis.analysisJobId || savedAnalysisId} resultsUi={resultsUi} setResultsUi={setResultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} navigationTargetEntity={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} onNavigationRequestVisible={revealNavigationPanel} currentLocation={userLocation} locationFollow={locationFollow} onRequestLocation={requestLiveLocation} onSetFollow={setFollowMode} onBreadcrumbChange={setActiveBreadcrumb} />
+            <AnalysisResultsTabs analysis={analysis} analysisJobId={analysis.analysisJobId || savedAnalysisId} resultsUi={resultsUi} setResultsUi={setResultsUi} onSelect={selectResultEntity} onNavigate={navigateToResult} navigationTargetEntity={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} navigationRevealNonce={navigationRevealNonce} onNavigationRequestVisible={revealNavigationPanel} currentLocation={userLocation} locationFollow={locationFollow} onRequestLocation={requestLiveLocation} onSetFollow={setFollowMode} onBreadcrumbChange={updateActiveBreadcrumbDisplay} />
             <View style={styles.row}>
               <ActionButton label="Open Report" onPress={() => setScreen("report")} primary />
               <ActionButton label="New Analysis" onPress={resetSetup} />
@@ -844,6 +884,31 @@ function ActionButton({
       <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{loading ? loadingLabel : label}</Text>
     </Pressable>
   );
+}
+
+function BreadcrumbLayerControl({ visible, status, showEmpty, onToggle, onOpenFieldNavigation }: { visible: boolean; status: string; showEmpty: boolean; onToggle: () => void; onOpenFieldNavigation: () => void }) {
+  return <View style={styles.breadcrumbControl}>
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel="Show recorded breadcrumb trails"
+      accessibilityHint="This does not start or stop breadcrumb recording."
+      accessibilityState={{ checked: visible }}
+      accessibilityValue={{ text: status }}
+      onPress={onToggle}
+      style={({ pressed }) => [styles.breadcrumbToggle, visible && styles.breadcrumbToggleActive, pressed && styles.buttonPressed]}
+    >
+      <Ionicons name={visible ? "eye-outline" : "eye-off-outline"} size={22} color={visible ? "#19140d" : "#f0f3ea"} />
+      <Text style={[styles.breadcrumbToggleLabel, visible && styles.breadcrumbToggleLabelActive]}>Show Breadcrumb Trails</Text>
+      <Text accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.breadcrumbToggleValue, visible && styles.breadcrumbToggleLabelActive]}>{visible ? "On" : "Off"}</Text>
+    </Pressable>
+    <Text style={styles.breadcrumbDescription}>Shows recorded breadcrumb trails on the map. To record a new trail, open Field Navigation and tap Start Breadcrumb.</Text>
+    <Text accessibilityLiveRegion="polite" style={styles.breadcrumbStatus}>{status}</Text>
+    {status === "Recording · Hidden" && <Text accessibilityLiveRegion="polite" style={styles.breadcrumbRecordingNote}>Recording continues while the trail is hidden.</Text>}
+    {showEmpty && <View accessibilityLiveRegion="polite" style={styles.breadcrumbEmptyState}>
+      <Text style={styles.breadcrumbEmptyText}>No breadcrumb trails recorded for this analysis. Open Field Navigation to start one.</Text>
+      <ActionButton label="Open Field Navigation" accessibilityHint="Opens Field Navigation without starting breadcrumb recording." onPress={onOpenFieldNavigation} />
+    </View>}
+  </View>;
 }
 
 function NavButton({ icon, label, onPress, selected }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void; selected: boolean }) {
@@ -987,6 +1052,17 @@ const styles = StyleSheet.create({
   mapState: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 12, padding: 20, backgroundColor: "rgba(11,15,12,.92)" },
   mapActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   mapControlPanel: { gap: 8, marginTop: 12, marginBottom: 4 },
+  breadcrumbControl: { gap: 8, padding: 12, borderRadius: 14, backgroundColor: "#182019", borderWidth: 1, borderColor: "#334333" },
+  breadcrumbToggle: { width: "100%", minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: "#243025", borderWidth: 1, borderColor: "#3b4b3a" },
+  breadcrumbToggleActive: { backgroundColor: "#d0a65d", borderColor: "#e5c682" },
+  breadcrumbToggleLabel: { flex: 1, minWidth: 0, flexShrink: 1, color: "#f0f3ea", fontSize: 16, lineHeight: 22, fontWeight: "800" },
+  breadcrumbToggleLabelActive: { color: "#19140d" },
+  breadcrumbToggleValue: { flexShrink: 0, color: "#f0f3ea", fontWeight: "900" },
+  breadcrumbDescription: { color: "#a8b5a2", fontSize: 14, lineHeight: 20 },
+  breadcrumbStatus: { color: "#f0d293", fontSize: 14, lineHeight: 20, fontWeight: "800" },
+  breadcrumbRecordingNote: { color: "#cbd6c5", lineHeight: 20 },
+  breadcrumbEmptyState: { gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#334333" },
+  breadcrumbEmptyText: { color: "#cbd6c5", lineHeight: 20 },
   locationControl: { position: "absolute", right: 14, bottom: 58, zIndex: 6, width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,29,21,.96)", borderWidth: 1, borderColor: "#758471", shadowColor: "#000", shadowOpacity: .34, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 7 },
   locationControlActive: { backgroundColor: "#8eab77", borderColor: "#d9edc9" },
   locationControlDisabled: { opacity: .72 },

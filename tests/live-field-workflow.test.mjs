@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { breadcrumbsFeatureCollection } from "../src/breadcrumb-geometry.js";
+import { breadcrumbsFeatureCollection, hasBreadcrumbPoints } from "../src/breadcrumb-geometry.js";
 import { createForegroundLocationController } from "../src/live-location.js";
 import { safeSarFailure, sarStartReadiness } from "../src/sar-workflow.js";
 
@@ -20,6 +20,13 @@ test("breadcrumb geometry is analysis-scoped, ordered, deduplicated, and toleran
     {items:[{id:"trail",analysisJobId:"a",points:[{latitude:2,longitude:20,sequenceNumber:2,clientPointId:"two"},{latitude:3,longitude:30,sequenceNumber:3}]}]},
   ],"a");
   assert.equal(feature.features.length,1);assert.deepEqual(feature.features[0].geometry.coordinates,[[10,1],[20,2],[30,3]]);
+});
+
+test("nested hydrated breadcrumb responses count points without leaking other analyses",()=>{
+  const response={items:[{id:"trail-a",analysisJobId:"a",points:[{latitude:1,longitude:2}]},{id:"trail-b",analysisJobId:"b",points:[{latitude:3,longitude:4}]}]};
+  assert.equal(hasBreadcrumbPoints([[response]],"a"),true);
+  assert.equal(hasBreadcrumbPoints([[response]],"missing"),false);
+  assert.equal(hasBreadcrumbPoints([{items:[{id:"invalid",analysisJobId:"a",points:[{latitude:"bad",longitude:2}]}]}],"a"),false);
 });
 
 test("SAR readiness requires an enabled feature, shared analysis, and owner/coordinator role",()=>{assert.equal(sarStartReadiness({liveSarEnabled:false}).ready,false);assert.equal(sarStartReadiness({team:{accessRole:"viewer"},analysis:{id:"a"}}).ready,false);assert.equal(sarStartReadiness({team:{accessRole:"coordinator"},analysis:{id:"a"}}).ready,true);assert.equal(safeSarFailure({code:"FEATURE_DISABLED",status:503}).message,"Live SAR is not currently enabled.")});

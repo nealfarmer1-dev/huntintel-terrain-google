@@ -34,7 +34,7 @@ test("support constants, content counts, video, and legal destinations are exact
     description: "Watch a quick walkthrough of naming an analysis, drawing the analysis boundary, confirming acreage and price, and starting a HuntIntel Terrain analysis.",
     url: "https://youtube.com/shorts/IkV3SmWBPds",
   });
-  assert.equal(GETTING_STARTED_ARTICLES.length, 7);
+  assert.equal(GETTING_STARTED_ARTICLES.length, 8);
   assert.equal(SUPPORT_FAQS.length, 20);
   assert.equal(TERMS_URL, "https://app.huntintelapp.com/legal/terms");
   assert.equal(PRIVACY_URL, "https://app.huntintelapp.com/legal/privacy");
@@ -81,4 +81,3 @@ test("Android hardware back closes the native Help screen", () => {
   assert.match(helpSource, /BackHandler\.addEventListener\("hardwareBackPress"/);
   assert.match(helpSource, /onClose\(\); return true;/);
 });
-

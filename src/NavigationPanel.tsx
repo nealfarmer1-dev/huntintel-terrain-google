@@ -11,7 +11,7 @@ import { appendBreadcrumbPoint, createBreadcrumb, navigationSnapshot, transition
 import { breadcrumbLocationTaskOptions, startUserInitiatedLocationTask } from "./location-tracking";
 
 export function NavigationPanel(props: any): any;
-export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget = null, locationRequestNonce = 0, currentLocation = null, follow = false, onRequestVisible, onRequestLocation, onSetFollow, onBreadcrumbChange, onSelectTarget }) {
+export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget = null, locationRequestNonce = 0, revealRequestNonce = 0, currentLocation = null, follow = false, onRequestVisible, onRequestLocation, onSetFollow, onBreadcrumbChange, onSelectTarget }) {
   const [selected, setSelected] = useState(null);
   const [track, setTrack] = useState(null);
   const [message, setMessage] = useState("");
@@ -19,6 +19,7 @@ export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget 
   const [taskRecordsPoints, setTaskRecordsPoints] = useState(false);
   const titleRef = useRef(null);
   const handledLocationRequest = useRef(0);
+  const handledRevealRequest = useRef(0);
   const lastRecordedAt = useRef("");
   const mounted = useRef(true);
 
@@ -36,6 +37,7 @@ export function NavigationPanel({ analysisJobId, waypoints = [], selectedTarget 
   function toggleFollow() { if (follow) onSetFollow?.(false); else if (currentLocation) onSetFollow?.(true); else void locate(); }
 
   useEffect(() => { if (!locationRequestNonce || handledLocationRequest.current === locationRequestNonce) return; handledLocationRequest.current = locationRequestNonce; const frame = requestAnimationFrame(() => { const node = findNodeHandle(titleRef.current); if (node) { onRequestVisible?.(node); AccessibilityInfo.setAccessibilityFocus(node); } }); void locate(); return () => cancelAnimationFrame(frame); }, [locationRequestNonce]);
+  useEffect(() => { if (!revealRequestNonce || handledRevealRequest.current === revealRequestNonce) return; handledRevealRequest.current = revealRequestNonce; const frame = requestAnimationFrame(() => { const node = findNodeHandle(titleRef.current); if (node) { onRequestVisible?.(node); AccessibilityInfo.setAccessibilityFocus(node); } }); return () => cancelAnimationFrame(frame); }, [revealRequestNonce]);
 
   useEffect(() => {
     if (!track || track.status !== "active" || !currentLocation?.recordedAt || lastRecordedAt.current === currentLocation.recordedAt) return;
