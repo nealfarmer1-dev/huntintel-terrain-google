@@ -11,7 +11,7 @@ test("Android SAR is user-initiated, visibly stoppable, and uses a location fore
 
   assert.match(ui, /LIVE SHARING ACTIVE/);
   assert.match(ui, /Stop sharing/);
-  assert.match(ui, /onPress=\{\(\)=>startShare\(true\)\}/);
+  assert.match(ui, /onPress=\{\(\) => \{ void startShare\(true\); \}\}/);
   assert.match(background, /startUserInitiatedLocationTask/);
   assert.match(tracking, /foregroundService/);
   assert.match(tracking, /HuntIntel live SAR sharing/);

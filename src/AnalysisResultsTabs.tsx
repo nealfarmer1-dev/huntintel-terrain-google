@@ -37,7 +37,7 @@ export function SelectedResultDetail({ analysis, resultsUi, onSelect, onNavigate
   return <Detail entity={selected} type={type} analysis={analysis} onSelect={onSelect} onNavigate={onNavigate} />;
 }
 
-export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setResultsUi, onSelect, onNavigate, navigationTargetEntity, navigationRequestNonce = 0, onNavigationRequestVisible }: any) {
+export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setResultsUi, onSelect, onNavigate, navigationTargetEntity, navigationRequestNonce = 0, onNavigationRequestVisible, currentLocation, locationFollow, onRequestLocation, onSetFollow, onBreadcrumbChange }: any) {
   const selected = selectedEntity(resultsUi, analysis);
   const waypoints = sortResultEntities(analysis.waypoints || [], resultsUi.waypointSort);
   const visibleWaypoints = waypoints.slice(0, resultsUi.waypointLimit);
@@ -61,7 +61,7 @@ export function AnalysisResultsTabs({ analysis, analysisJobId, resultsUi, setRes
     <View style={s.tabs} accessibilityRole="tablist">{TABS.map(([id, label]) => <Button key={id} role="tab" label={id === "waypoints" ? `${label} (${analysis.waypoints?.length || 0})` : id === "features" ? `${label} (${analysis.features?.length || 0})` : label} selected={resultsUi.activeResultsTab === id} onPress={() => activate(id)} />)}</View>
     <View style={resultsUi.activeResultsTab === "waypoints" ? undefined : s.hidden}>{waypointPanel}</View>
     <View style={resultsUi.activeResultsTab === "features" ? undefined : s.hidden}>{featurePanel}</View>
-    <View style={resultsUi.activeResultsTab === "navigation" ? undefined : s.hidden}><NavigationPanel key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints} selectedTarget={navigationTargetEntity} navigationRequestNonce={navigationRequestNonce} onRequestVisible={onNavigationRequestVisible} onSelectTarget={(waypoint:any)=>{onSelect("waypoint",waypoint.id,false);onNavigate(waypoint)}} /></View>
+    <View style={resultsUi.activeResultsTab === "navigation" ? undefined : s.hidden}><NavigationPanel key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints} selectedTarget={navigationTargetEntity} locationRequestNonce={navigationRequestNonce} onRequestVisible={onNavigationRequestVisible} currentLocation={currentLocation} follow={locationFollow} onRequestLocation={onRequestLocation} onSetFollow={onSetFollow} onBreadcrumbChange={onBreadcrumbChange} onSelectTarget={(waypoint:any)=>{onSelect("waypoint",waypoint.id,false);onNavigate(waypoint)}} /></View>
     <View style={resultsUi.activeResultsTab === "records" ? undefined : s.hidden}><FieldRecordsScreen key={analysisJobId} analysisJobId={analysisJobId} waypoints={waypoints.map(({ id, title }: any) => ({ id, title }))} /></View>
   </View>;
 }

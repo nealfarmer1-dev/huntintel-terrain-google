@@ -60,24 +60,21 @@ test("popup navigation requests location once and makes Field Navigation visible
   assert.match(app, /scrollResponderScrollNativeHandleToKeyboard\(nativeHandle,24,true\)/);
   assert.match(app, /navigationRequestNonce=\{navigationRequestNonce\}/);
   assert.match(app, /onNavigationRequestVisible=\{revealNavigationPanel\}/);
-  assert.match(tabs, /navigationRequestNonce=\{navigationRequestNonce\}/);
+  assert.match(tabs, /locationRequestNonce=\{navigationRequestNonce\}/);
   assert.match(tabs, /onRequestVisible=\{onNavigationRequestVisible\}/);
-  assert.match(navigation, /nonce <= 0 \|\| lastNavigationRequestRef\.current === nonce/);
+  assert.match(navigation, /!locationRequestNonce \|\| handledLocationRequest\.current === locationRequestNonce/);
   assert.match(navigation, /void locate\(\)/);
-  assert.match(navigation, /onRequestVisible\?\.\(titleNode\)/);
-  assert.match(navigation, /AccessibilityInfo\.setAccessibilityFocus\(titleNode\)/);
+  assert.match(navigation, /onRequestVisible\?\.\(node\)/);
+  assert.match(navigation, /AccessibilityInfo\.setAccessibilityFocus\(node\)/);
 });
 
-test("field location watch prevents concurrent starts and owns its subscription lifecycle", () => {
-  assert.match(navigation, /if \(locatingRef\.current\) return false/);
-  assert.match(navigation, /if \(watchRef\.current\)/);
-  assert.match(navigation, /watchRef\.current = subscription/);
-  assert.match(navigation, /subscription\.remove\(\)/);
-  assert.match(navigation, /stopLocationWatch\(\)/);
-  assert.match(navigation, /return \(\) => \{[\s\S]+?mountedRef\.current = false[\s\S]+?stopLocationWatch\(\)/);
-  assert.match(navigation, /function toggleFollow\(\) \{[\s\S]+?stopLocationWatch\(\);[\s\S]+?setFollow\(false\)/);
-  assert.match(navigation, /if \(!mountedRef\.current \|\| !desiredFollowRef\.current\) \{[\s\S]+?subscription\.remove\(\)/);
-  assert.match(navigation, /desiredFollowRef\.current = false;[\s\S]+?setFollow\(false\);[\s\S]+?setMessage\("Current location is unavailable/);
+test("field navigation consumes the shared location watcher and Follow controls only the camera", () => {
+  assert.doesNotMatch(navigation, /watchPositionAsync/);
+  assert.match(navigation, /currentLocation = null, follow = false, onRequestVisible, onRequestLocation, onSetFollow/);
+  assert.match(navigation, /if \(locating\) return false/);
+  assert.match(navigation, /onRequestLocation\?\.\(\{ follow: true \}\)/);
+  assert.match(navigation, /if \(follow\) onSetFollow\?\.\(false\)/);
+  assert.match(navigation, /setMessage\("Foreground location permission is required/);
 });
 
 test("waypoint popup is bounded and exposes 44 point close and navigation targets", () => {

@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { createTeam, fetchAnalyses, fetchTeamInvitations, fetchTeamMembers, fetchTeams, inviteTeamMember, removeTeamMember, respondTeamInvitation, revokeTeamAnalysis, shareAnalysisWithTeam, updateTeamMemberRole } from "./api";
+import { createTeam, fetchAnalyses, fetchTeamAnalyses, fetchTeamInvitations, fetchTeamMembers, fetchTeams, inviteTeamMember, removeTeamMember, respondTeamInvitation, revokeTeamAnalysis, shareAnalysisWithTeam, updateTeamMemberRole } from "./api";
 import { EmptyState, PrimaryButton, SecondaryButton, StatusBanner } from "./NativeUi";
 
 const roles = ["viewer", "contributor", "coordinator"];
@@ -18,6 +18,8 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [failed, setFailed] = useState(false);
+  const [sharedAnalysisIds, setSharedAnalysisIds] = useState<Set<string>>(new Set());
+  const [rowErrors, setRowErrors] = useState<Record<string, any>>({});
 
   const load = useCallback(async (id?: string) => {
     setLoading(true); setFailed(false);
@@ -30,7 +32,7 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
       const nextId = id || selected?.id || nextTeams[0]?.id;
       const nextTeam = nextTeams.find((team: any) => team.id === nextId) || null;
       setSelected(nextTeam);
-      setMembers(nextTeam ? (await fetchTeamMembers(nextTeam.id)).items || [] : []);
+      if(nextTeam){const[memberResult,sharedResult]=await Promise.all([fetchTeamMembers(nextTeam.id),fetchTeamAnalyses(nextTeam.id)]);setMembers(memberResult.items||[]);setSharedAnalysisIds(new Set((sharedResult.items||[]).map((item:any)=>item.analysisJobId||item.analysis_job_id)));}else{setMembers([]);setSharedAnalysisIds(new Set());}
     } catch {
       setFailed(true);
       setMessage("Teams could not be loaded. Check your connection and try again.");
@@ -42,12 +44,12 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
   useEffect(() => { void load(); }, []);
 
   async function run(key: string, action: () => Promise<void>, success?: string) {
-    setBusy(key); setMessage("");
+    if(busy)return;setBusy(key); setMessage("");setRowErrors((current)=>({...current,[key]:null}));
     try {
       await action();
       if (success) setMessage(success);
-    } catch {
-      setMessage("That team action could not be completed. Please try again.");
+    } catch (error:any) {
+      const value={message:key.startsWith("share-")&&error?.status>=500?"The analysis could not be shared. Please try again.":error?.message||"That team action could not be completed. Please try again.",code:error?.code,status:error?.status,correlationId:error?.correlationId};setRowErrors((current)=>({...current,[key]:value}));setMessage(value.message);
     } finally {
       setBusy("");
     }
@@ -95,10 +97,10 @@ export function TeamsScreen({ onClose }: { onClose: () => void }) {
 
         <View style={s.section}>
           <Text style={s.sectionTitle}>Share a saved analysis</Text>
-          {!analyses.length ? <Text style={s.meta}>Create a saved analysis before sharing it with this team.</Text> : analyses.map((item: any) => <View key={item.analysisJobId} style={s.listRow}>
+          {!analyses.length ? <Text style={s.meta}>Create a saved analysis before sharing it with this team.</Text> : analyses.map((item: any) => {const shared=sharedAnalysisIds.has(item.analysisJobId),shareKey=`share-${item.analysisJobId}`,revokeKey=`revoke-${item.analysisJobId}`,rowError=rowErrors[shareKey]||rowErrors[revokeKey];return <View key={item.analysisJobId} style={s.listRow}>
             <View style={s.flex}><Text style={s.itemTitle}>{item.name || "Terrain Analysis"}</Text><Text style={s.meta}>Owner analysis</Text></View>
-            <View style={s.row}><PrimaryButton label="Share" onPress={() => run(`share-${item.analysisJobId}`, async () => { await shareAnalysisWithTeam(selected.id, item.analysisJobId); }, `${item.name || "Analysis"} shared.`)} /><SecondaryButton label="Revoke" onPress={() => run(`revoke-${item.analysisJobId}`, async () => { await revokeTeamAnalysis(selected.id, item.analysisJobId); }, "Analysis access revoked.")} /></View>
-          </View>)}
+            <View style={s.row}>{shared?<><PrimaryButton label="Shared" disabled onPress={()=>{}}/><SecondaryButton label="Revoke" loading={busy===revokeKey} onPress={() => run(revokeKey, async () => { await revokeTeamAnalysis(selected.id, item.analysisJobId); await load(selected.id); }, "Analysis access revoked.")} /></>:<PrimaryButton label="Share" loadingLabel="Sharing…" loading={busy===shareKey} onPress={() => run(shareKey, async () => { await shareAnalysisWithTeam(selected.id, item.analysisJobId); await load(selected.id); }, `${item.name || "Analysis"} is now shared with ${selected.name}.`)} />}</View>{rowError&&<Text accessibilityLiveRegion="polite" style={s.meta}>{rowError.message}{rowError.correlationId?` Support reference: ${rowError.correlationId}`:""}</Text>}
+          </View>})}
         </View>
 
         <View style={s.section}>
