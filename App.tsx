@@ -53,7 +53,9 @@ import { runMapBuildStage, safeBuildMapSource, TERRAIN_MAP_FAILURE_MESSAGE } fro
 import { mapBuildCollections, safeJson, terrainMapViewport } from "./src/map-html-runtime";
 import { selectTerrainMapSource } from "./src/map-source-selection";
 import { createForegroundLocationController, updateLocationJavaScript } from "./src/live-location";
-import { breadcrumbRecordsFromOffline, breadcrumbsFeatureCollection, setBreadcrumbsJavaScript } from "./src/breadcrumb-geometry";
+import { appendBreadcrumbDisplayPoint, breadcrumbRecordsFromOffline, breadcrumbsFeatureCollection, setBreadcrumbsJavaScript } from "./src/breadcrumb-geometry";
+import { sarAssignmentsFeatureCollection, sarPositionsFeatureCollection, setSarAssignmentsJavaScript, setSarPositionsJavaScript } from "./src/sar-map";
+import { useSarController } from "./src/useSarController";
 
 const MIN_ACRES = 5;
 const MAX_ACRES = 2000;
@@ -74,7 +76,7 @@ const ANALYSIS_MODE_OPTIONS = [
 ] as const;
 
 type Screen = "home" | "setup" | "payment" | "processing" | "opening" | "results" | "report" | "waypoint" | "library" | "teams" | "sar";
-type MapPoint = { longitude: number; latitude: number };
+type MapPoint = { longitude: number; latitude: number; accuracy?: number; altitude?: number | null; heading?: number | null; speed?: number | null; recordedAt?: string };
 
 function sortWaypoints(waypoints: TerrainWaypoint[]) {
   return [...waypoints].sort((left, right) => right.score - left.score);
@@ -88,7 +90,7 @@ function analysisModeLabel(value: string | undefined) {
   return ANALYSIS_MODE_OPTIONS.find((option) => option.value === value)?.label || value || "Unknown";
 }
 
-function buildMapHtml({ token, polygon, features, relationships, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled, camera, initialAnalysisFit }: any) {
+function buildMapHtml({ token, polygon, features, relationships, waypoints, basemap, terrainOverlay, labelsVisible, layerPreferences, editable, userLocation, userLocationEnabled, camera, initialAnalysisFit, sarPositions, sarAssignments }: any) {
   const prepared = runMapBuildStage("input_preparation", () => ({
     style: mapboxStyleFor(basemap),
     ...terrainMapViewport(polygon),
@@ -114,6 +116,8 @@ function buildMapHtml({ token, polygon, features, relationships, waypoints, base
     initialUserLocationEnabled: safeJson(Boolean(userLocationEnabled)),
     initialCamera: safeJson(camera || null),
     initialAnalysisFit: safeJson(Boolean(initialAnalysisFit)),
+    sarPositions: safeJson(sarPositions || {type:"FeatureCollection",features:[]}),
+    sarAssignments: safeJson(sarAssignments || {type:"FeatureCollection",features:[]}),
     center: safeJson(prepared.center),
   }));
   return runMapBuildStage("final_html_assembly", () => `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
@@ -135,6 +139,8 @@ const initialUserLocation=${serialized.initialUserLocation};
 const initialUserLocationEnabled=${serialized.initialUserLocationEnabled};
 const initialCamera=${serialized.initialCamera};
 const initialAnalysisFit=${serialized.initialAnalysisFit};
+const initialSarPositions=${serialized.sarPositions};
+const initialSarAssignments=${serialized.sarAssignments};
 const map=new mapboxgl.Map({container:'map',style:style,center:initialCamera&&initialCamera.center||centerSafe(),zoom:initialCamera&&initialCamera.zoom||${prepared.zoom},bearing:initialCamera&&initialCamera.bearing||0,pitch:initialCamera&&initialCamera.pitch||0,projection:'mercator'});
 map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}),'top-right');
 let terrainEnabled=false;
@@ -143,12 +149,14 @@ function centerSafe(){try{return polygon&&polygon.coordinates&&polygon.coordinat
 function ensureDem(){if(map.getSource('mapbox-dem'))return true;try{map.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1',tileSize:512,maxzoom:14});return true}catch(e){return false}}
 function set3d(next){terrainEnabled=!!next;if(terrainEnabled&&ensureDem()){map.setTerrain({source:'mapbox-dem',exaggeration:1.45});map.easeTo({pitch:60,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.add('active');return}try{map.setTerrain(null)}catch(e){}map.easeTo({pitch:0,bearing:map.getBearing(),duration:650});document.getElementById('toggle-3d').classList.remove('active')}
 function consume(e){e.preventDefault();e.stopPropagation()}function ensureUserLocationLayer(){if(map.getSource('user-location'))return;map.addSource('user-location',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'user-location-dot',type:'circle',source:'user-location',layout:{visibility:layerPreferences.field.current_location===false?'none':'visible'},paint:{'circle-radius':8,'circle-color':'#4f9cff','circle-stroke-color':'#fff','circle-stroke-width':3}})}function setUserLocationMarker(location){if(!location||!Number.isFinite(Number(location.longitude))||!Number.isFinite(Number(location.latitude))||!map.isStyleLoaded())return false;ensureUserLocationLayer();map.getSource('user-location').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[Number(location.longitude),Number(location.latitude)]},properties:{accuracy:Number(location.accuracy||0)}}]});return true}window.__terrainUpdateLocation=setUserLocationMarker;window.__terrainCenterLocation=function(location){if(!setUserLocationMarker(location))return false;var zoom=map.getZoom()<12?14:map.getZoom();map.easeTo({center:[location.longitude,location.latitude],zoom:zoom,duration:650});return true};window.__terrainClearLocation=function(){if(map.getSource('user-location'))map.getSource('user-location').setData({type:'FeatureCollection',features:[]})};window.__terrainSetBreadcrumbs=function(data){if(!map.isStyleLoaded()||!map.getSource('field-breadcrumbs'))return false;map.getSource('field-breadcrumbs').setData(data&&data.type==='FeatureCollection'?data:{type:'FeatureCollection',features:[]});return true};document.getElementById('toggle-3d').onclick=function(e){consume(e);set3d(!terrainEnabled)};document.getElementById('rotate-left').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()-30,duration:400})};document.getElementById('rotate-right').onclick=function(e){consume(e);map.easeTo({bearing:map.getBearing()+30,duration:400})};document.getElementById('reset-north').onclick=function(e){consume(e);map.easeTo({bearing:0,duration:450})};
+function setLayerVisibility(ids,visible){ids.forEach(function(id){if(map.getLayer(id))map.setLayoutProperty(id,'visibility',visible?'visible':'none')})}window.__terrainSetSarPositions=function(data,visible){if(!map.isStyleLoaded()||!map.getSource('sar-team-positions'))return false;map.getSource('sar-team-positions').setData(data&&data.type==='FeatureCollection'?data:{type:'FeatureCollection',features:[]});setLayerVisibility(['sar-team-accuracy','sar-team-position-dot','sar-team-position-label'],visible!==false);return true};window.__terrainSetSarAssignments=function(data){if(!map.isStyleLoaded()||!map.getSource('sar-assignments'))return false;map.getSource('sar-assignments').setData(data&&data.type==='FeatureCollection'?data:{type:'FeatureCollection',features:[]});return true};window.__terrainResize=function(){map.resize();return true};window.__terrainSetCamera=function(camera){if(!camera||!Array.isArray(camera.center))return false;map.jumpTo({center:camera.center,zoom:Number(camera.zoom),bearing:Number(camera.bearing||0),pitch:Number(camera.pitch||0)});map.resize();return true};
 function category(i){var v=String(i.featureType||(i.properties&&i.properties.definitionKey)||'').toLowerCase();var groups=[['travel',['funnel','pinch','corridor','travel','draw','crossing']],['bedding',['bed','bedding','thermal']],['ridges',['ridge','saddle','bench','spur','knob','hill']],['water',['water','creek','stream','river','drain','pond','wet']],['feeding',['feed','food','staging','field','opening']],['access',['access','wind','pressure','road','trail','route']]];for(var g=0;g<groups.length;g++)for(var t=0;t<groups[g][1].length;t++)if(v.indexOf(groups[g][1][t])>=0)return groups[g][0];return'other'}function fc(items,categorized){return{type:'FeatureCollection',features:(items||[]).filter(function(i){return i&&i.id&&i.geometry}).map(function(i){return{type:'Feature',id:i.id,geometry:i.geometry,properties:{id:i.id,title:i.title||'',featureType:i.featureType||'',waypointType:i.waypointType||'',score:i.score,confidence:i.confidence,sourceFeatureId:i.sourceFeatureId||'',category:categorized?category(i):''}}})}}
-function addLayers(){map.addSource('field-breadcrumbs',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'field-breadcrumbs-line',type:'line',source:'field-breadcrumbs',layout:{visibility:layerPreferences.field.breadcrumbs===false?'none':'visible'},paint:{'line-color':'#5aa7ff','line-width':4}});if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay',{type:'raster',tiles:['${USGS_3DEP_WMS_BASE}?service=WMS&version=1.1.1&request=GetMap&layers='+encodeURIComponent(overlay.layer)+'&styles=&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256'],tileSize:256,attribution:'USGS 3DEP / The National Map'});map.addLayer({id:'usgs-3dep-overlay',type:'raster',source:'usgs-3dep-overlay',paint:{'raster-opacity':overlay.value==='hillshade'?.62:.78}})}
+function addLayers(){map.addSource('field-breadcrumbs',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'field-breadcrumbs-line',type:'line',source:'field-breadcrumbs',layout:{visibility:layerPreferences.field.breadcrumbs===false?'none':'visible'},paint:{'line-color':'#5aa7ff','line-width':4}});map.addSource('sar-team-positions',{type:'geojson',data:initialSarPositions});map.addLayer({id:'sar-team-accuracy',type:'circle',source:'sar-team-positions',layout:{visibility:layerPreferences.team&&layerPreferences.team.team_positions===false?'none':'visible'},paint:{'circle-radius':['interpolate',['linear'],['get','accuracyMeters'],0,10,25,16,100,30],'circle-color':'rgba(72,156,255,.12)','circle-stroke-color':'rgba(145,202,255,.7)','circle-stroke-width':1}});map.addLayer({id:'sar-team-position-dot',type:'circle',source:'sar-team-positions',layout:{visibility:layerPreferences.team&&layerPreferences.team.team_positions===false?'none':'visible'},paint:{'circle-radius':['case',['get','isCurrentUser'],10,8],'circle-color':['case',['==',['get','state'],'current'],['case',['get','isCurrentUser'],'#4f9cff','#ffbd45'],'#839083'],'circle-opacity':['case',['==',['get','state'],'current'],1,.48],'circle-stroke-color':'#fff','circle-stroke-width':3}});map.addLayer({id:'sar-team-position-label',type:'symbol',source:'sar-team-positions',layout:{visibility:layerPreferences.team&&layerPreferences.team.team_positions===false?'none':'visible','text-field':['get','label'],'text-size':12,'text-offset':[0,1.5],'text-anchor':'top','text-allow-overlap':false},paint:{'text-color':'#fff','text-halo-color':'#172016','text-halo-width':2,'text-opacity':['case',['==',['get','state'],'current'],1,.55]}});map.addSource('sar-assignments',{type:'geojson',data:initialSarAssignments});map.addLayer({id:'sar-assignment-marker',type:'symbol',source:'sar-assignments',layout:{'text-field':'A','text-size':13,'text-allow-overlap':true},paint:{'text-color':'#19140d','text-halo-color':'#f28779','text-halo-width':6}});if(overlay&&overlay.layer){map.addSource('usgs-3dep-overlay',{type:'raster',tiles:['${USGS_3DEP_WMS_BASE}?service=WMS&version=1.1.1&request=GetMap&layers='+encodeURIComponent(overlay.layer)+'&styles=&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256'],tileSize:256,attribution:'USGS 3DEP / The National Map'});map.addLayer({id:'usgs-3dep-overlay',type:'raster',source:'usgs-3dep-overlay',paint:{'raster-opacity':overlay.value==='hillshade'?.62:.78}})}
 if(polygon){map.addSource('analysis-polygon',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{}}]}});map.addLayer({id:'analysis-polygon-fill',type:'fill',source:'analysis-polygon',paint:{'fill-color':'#d0a65d','fill-opacity':.18}});map.addLayer({id:'analysis-polygon-line',type:'line',source:'analysis-polygon',paint:{'line-color':'#f0d293','line-width':3}})}
 map.addSource('analysis-relationships',{type:'geojson',data:relationships});map.addLayer({id:'analysis-relationships-line',type:'line',source:'analysis-relationships',paint:{'line-color':'rgba(173,209,255,.72)','line-width':2,'line-dasharray':[3,3]}});map.addSource('analysis-features',{type:'geojson',data:fc(features,true)});map.addLayer({id:'analysis-features-fill',type:'fill',source:'analysis-features',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#d0a65d','fill-opacity':.24}});map.addLayer({id:'analysis-features-line',type:'line',source:'analysis-features',filter:['in',['geometry-type'],['literal',['LineString','Polygon']]],paint:{'line-color':'#e6c27a','line-width':4,'line-opacity':.86}});map.addLayer({id:'analysis-features-circle',type:'circle',source:'analysis-features',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#d0a65d','circle-radius':7,'circle-stroke-color':'#10140f','circle-stroke-width':2}});map.addSource('analysis-waypoints',{type:'geojson',data:fc(waypoints,false)});map.addLayer({id:'analysis-waypoints-circle',type:'circle',source:'analysis-waypoints',paint:{'circle-color':'#89b37f','circle-radius':7,'circle-stroke-color':'#e6c27a','circle-stroke-width':2}});map.addSource('analysis-selection',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'analysis-selection-fill',type:'fill',source:'analysis-selection',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#fff2a8','fill-opacity':.35}});map.addLayer({id:'analysis-selection-line',type:'line',source:'analysis-selection',filter:['in',['geometry-type'],['literal',['LineString','Polygon']]],paint:{'line-color':'#fff','line-width':7}});map.addLayer({id:'analysis-selection-circle',type:'circle',source:'analysis-selection',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#fff2a8','circle-radius':13,'circle-stroke-color':'#fff','circle-stroke-width':4}});map.addSource('analysis-related',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'analysis-related-circle',type:'circle',source:'analysis-related',paint:{'circle-color':'#89b37f','circle-radius':11,'circle-stroke-color':'#fff','circle-stroke-width':3}});
-if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
+if(!labelsVisible){(map.getStyle().layers||[]).forEach(function(layer){if(layer.id.indexOf('sar-')!==0&&layer.type==='symbol'&&layer.layout&&layer.layout['text-field'])map.setLayoutProperty(layer.id,'visibility','none')})}
 [['analysis-features-fill','features'],['analysis-features-line','features'],['analysis-features-circle','features'],['analysis-relationships-line','relationships'],['analysis-waypoints-circle','waypoints']].forEach(function(entry){if(map.getLayer(entry[0])&&!layerPreferences.analysis[entry[1]])map.setLayoutProperty(entry[0],'visibility','none')});
+['sar-team-accuracy','sar-team-position-dot','sar-team-position-label','sar-assignment-marker'].forEach(function(id){if(map.getLayer(id))map.moveLayer(id)});
 try{const b=new mapboxgl.LngLatBounds();let any=false;function walk(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){b.extend(c);any=true;return}c.forEach(walk)};if(polygon)walk(polygon.coordinates);if(!initialCamera&&(editable||initialAnalysisFit)&&any)map.fitBounds(b,{padding:56,maxZoom:15,duration:0})}catch(e){}
 }
 function entity(type,id){var list=type==='waypoint'?waypoints:features;return(list||[]).find(function(i){return i&&i.id===id})}
@@ -183,11 +191,26 @@ function showWaypointPopup(item,lngLat){
   popup.on('close',function(){if(activeWaypointPopup===popup){activeWaypointPopup=null;activeWaypointPopupId=null}});
   popup.setLngLat(coordinates||lngLat).setDOMContent(content).addTo(map);
 }
+function showSarParticipantPopup(feature,lngLat){
+  if(!feature)return;
+  var properties=feature.properties||{},content=document.createElement('section');
+  content.className='waypoint-popup';content.setAttribute('aria-label','Team position details');
+  popupText(content,'waypoint-popup-eyebrow',String(properties.state||'current').toUpperCase()+' TEAM POSITION');
+  popupText(content,'waypoint-popup-title',properties.label||'Team member');
+  if(properties.role)popupText(content,'waypoint-popup-type',properties.role);
+  popupText(content,'waypoint-popup-metric','Accuracy ±'+Math.round(Number(properties.accuracyMeters||0))+' m');
+  if(properties.lastUpdated)popupText(content,'waypoint-popup-reason','Last updated '+new Date(properties.lastUpdated).toLocaleString());
+  if(properties.sharingMode)popupText(content,'waypoint-popup-geometry','Sharing mode: '+properties.sharingMode);
+  new mapboxgl.Popup({className:'terrain-waypoint-popup',closeOnClick:true,maxWidth:'300px',offset:12}).setLngLat(lngLat).setDOMContent(content).addTo(map);
+}
 window.__terrainSelect=function(command){if(!map.isStyleLoaded())return;if(activeWaypointPopup&&(command.type!=='waypoint'||command.id!==activeWaypointPopupId))activeWaypointPopup.remove();var item=entity(command.type,command.id),selected=item&&item.geometry?[{type:'Feature',id:item.id,geometry:item.geometry,properties:{id:item.id}}]:[];map.getSource('analysis-selection').setData({type:'FeatureCollection',features:selected});var related=command.type==='terrainFeature'?(waypoints||[]).filter(function(w){return w.sourceFeatureId===command.id}):[];map.getSource('analysis-related').setData(fc(related,false));var categoryId=command.category||null;map.setPaintProperty('analysis-features-circle','circle-opacity',categoryId?['case',['==',['get','category'],categoryId],1,.2]:1);map.setPaintProperty('analysis-features-line','line-opacity',categoryId?['case',['==',['get','category'],categoryId],.95,.18]:.86);map.setPaintProperty('analysis-features-fill','fill-opacity',categoryId?['case',['==',['get','category'],categoryId],.32,.06]:.24);if(!command.focus||!item||!item.geometry)return;var points=coords(item.geometry,[]);if(!points.length)return;if(item.geometry.type==='Point'){map.easeTo({center:points[0],zoom:Math.max(map.getZoom(),14),duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});return}var bounds=points.reduce(function(b,p){return b.extend(p)},new mapboxgl.LngLatBounds(points[0],points[0]));map.fitBounds(bounds,{padding:55,maxZoom:15,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500})};
 ['analysis-features-fill','analysis-features-line','analysis-features-circle'].forEach(function(layer){map.on('click',layer,function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(id)post('result-select',{entityType:'terrainFeature',id:id})})});
 map.on('click','analysis-waypoints-circle',function(e){var id=e.features&&e.features[0]&&e.features[0].properties.id;if(!id)return;var item=entity('waypoint',id);post('result-select',{entityType:'waypoint',id:id});showWaypointPopup(item,e.lngLat)});
+map.on('click','sar-team-position-dot',function(e){showSarParticipantPopup(e.features&&e.features[0],e.lngLat)});
 map.on('mouseenter','analysis-waypoints-circle',function(){map.getCanvas().style.cursor='pointer'});
 map.on('mouseleave','analysis-waypoints-circle',function(){map.getCanvas().style.cursor=''});
+map.on('mouseenter','sar-team-position-dot',function(){map.getCanvas().style.cursor='pointer'});
+map.on('mouseleave','sar-team-position-dot',function(){map.getCanvas().style.cursor=''});
 map.on('load',function(){addLayers();if(initialUserLocation&&initialUserLocationEnabled)setUserLocationMarker(initialUserLocation);post('map-ready',{});});
 map.on('moveend',function(){var c=map.getCenter();post('map-camera',{center:[c.lng,c.lat],zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()})});
 map.on('click',function(e){if(!editable)return;post('map-click',{longitude:Number(e.lngLat.lng.toFixed(6)),latitude:Number(e.lngLat.lat.toFixed(6))})});
@@ -244,14 +267,17 @@ function TerrainApp() {
   const [mapConfig, setMapConfig] = useState<any>({ providers: [] });
   const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mapBuildAttempt, setMapBuildAttempt] = useState(0);
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [layerSheetVisible, setLayerSheetVisible] = useState(false);
   const [homeSummary, setHomeSummary] = useState<any>(null);
   const [homeError, setHomeError] = useState("");
   const [purchase,setPurchase]=useState<any>(null);
   const [quotedSetupKey,setQuotedSetupKey]=useState<string|null>(null),[hadQuote,setHadQuote]=useState(false),[quoteLoading,setQuoteLoading]=useState(false);
   const quoteRequest=useRef(false),mapCamera=useRef<any>(null),mapWebRef=useRef<any>(null),pendingLocationCenter=useRef<MapPoint|null>(null),analysisLoadGeneration=useRef(0),appScrollRef=useRef<ScrollView|null>(null);
-  const locationFollowRef=useRef(false),activeAnalysisIdRef=useRef<string|null>(null),locationControllerRef=useRef<any>(null);
+  const locationFollowRef=useRef(false),activeAnalysisIdRef=useRef<string|null>(null),analysisRef=useRef<any>(null),locationControllerRef=useRef<any>(null);
   if(!locationControllerRef.current)locationControllerRef.current=createForegroundLocationController(Location,{onLocation:(location:any)=>{setUserLocation(location);setUserLocationEnabled(true);mapWebRef.current?.injectJavaScript(locationFollowRef.current?centerLocationJavaScript(location):updateLocationJavaScript(location));},onError:()=>{setUserLocationEnabled(false);setLocationFollow(false);locationFollowRef.current=false;}});
+  const sar=useSarController({enabled:Boolean(account),currentLocation:userLocation});
+  analysisRef.current=analysis;
 
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
@@ -271,6 +297,9 @@ function TerrainApp() {
           : setupPhase==="quoted"
             ? "Acreage and price are confirmed. Analyze Terrain is ready."
             : "Step 3: confirm server acreage and price.";
+  const currentUserId=account?.id??account?.userId??account?.user_id??account?.user?.id??null;
+  const sarPositionsGeoJson=useMemo(()=>{const activeSharingId=sar.sharing?.sharingSessionId??sar.sharing?.sharing_session_id??null;const identified=(sar.positions||[]).map((position:any)=>activeSharingId&&String(position.sharingSessionId??position.sharing_session_id??"")===String(activeSharingId)?{...position,isCurrentUser:true}:position);return sarPositionsFeatureCollection(identified,currentUserId);},[sar.positions,sar.sharing,currentUserId]);
+  const sarAssignmentsGeoJson=useMemo(()=>sarAssignmentsFeatureCollection(sar.details?.assignments||[],analysis?.waypoints||[]),[sar.details?.assignments,analysis?.waypoints]);
   const mapSelection=useMemo(()=>{
     if (!HAS_MAPBOX_ACCESS_TOKEN) return {usingOfflinePackage:false,sourceResult:{ok:false,source:null,code:"MAP_CONFIG_UNAVAILABLE",userMessage:TERRAIN_MAP_FAILURE_MESSAGE}};
     const nextPolygon=analysis?analysis.requestPolygon:polygon;
@@ -278,7 +307,7 @@ function TerrainApp() {
       offlineManifest,
       analysis,
       buildOffline:(manifest:any)=>safeBuildMapSource((value:any)=>renderOfflineMapHtml(value,layerPreferences),manifest,{platform:Platform.OS,setupActive:screen==="setup"}),
-      buildOnline:()=>safeBuildMapSource(buildMapHtml,{token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],relationships:analysis?.relationships||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup"&&!analysis,userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId)},{platform:Platform.OS,setupActive:screen==="setup"}),
+      buildOnline:()=>safeBuildMapSource(buildMapHtml,{token:MAPBOX_ACCESS_TOKEN,polygon:nextPolygon,features:analysis?.features||[],relationships:analysis?.relationships||[],waypoints:sortWaypoints(analysis?.waypoints||[]),basemap,terrainOverlay,labelsVisible,layerPreferences,editable:screen==="setup"&&!analysis,userLocation,userLocationEnabled,camera:mapCamera.current,initialAnalysisFit:Boolean(analysis?.analysisJobId&&initialFitAnalysisId===analysis.analysisJobId),sarPositions:sarPositionsGeoJson,sarAssignments:sarAssignmentsGeoJson},{platform:Platform.OS,setupActive:screen==="setup"}),
     });
   },[analysis,polygon,basemap,terrainOverlay,labelsVisible,layerPreferences,screen,offlineManifest,mapBuildAttempt]);
   const {sourceResult:mapSourceResult,usingOfflinePackage}=mapSelection;
@@ -334,11 +363,14 @@ function TerrainApp() {
       setSessionMessage("Your session has expired. Please sign in again.");
     });
     void refreshLocationPermission();
-    const subscription = AppState.addEventListener("change", (state) => { if (state === "active") { void restoreAccount(); void refreshLocationPermission(); void locationControllerRef.current?.refresh(); void hydrateBreadcrumbs(activeAnalysisIdRef.current); } });
+    const subscription = AppState.addEventListener("change", (state) => { sar.setAppActive(state === "active"); if (state === "active") { void restoreAccount(); void refreshLocationPermission(); void locationControllerRef.current?.refresh(); void hydrateBreadcrumbs(activeAnalysisIdRef.current); } });
     return () => { removeExpired(); subscription.remove(); locationControllerRef.current?.stop(); };
-  }, [refreshLocationPermission, restoreAccount, restoreNonce, hydrateBreadcrumbs]);
+  }, [refreshLocationPermission, restoreAccount, restoreNonce, hydrateBreadcrumbs,sar.setAppActive]);
   useEffect(()=>{void hydrateBreadcrumbs(analysisJobId);},[analysisJobId,hydrateBreadcrumbs]);
   useEffect(()=>{if(mapStatus==="ready")mapWebRef.current?.injectJavaScript(setBreadcrumbsJavaScript(breadcrumbGeoJson));},[breadcrumbGeoJson,mapStatus]);
+  useEffect(()=>{if(screen!=="sar"||!userLocation?.recordedAt)return;setActiveBreadcrumb((current:any)=>appendBreadcrumbDisplayPoint(current,userLocation,analysisJobId));},[screen,userLocation?.recordedAt,analysisJobId]);
+  useEffect(()=>{if(mapStatus==="ready")mapWebRef.current?.injectJavaScript(setSarPositionsJavaScript(sarPositionsGeoJson,layerPreferences.team?.team_positions!==false));},[sarPositionsGeoJson,mapStatus,layerPreferences.team?.team_positions]);
+  useEffect(()=>{if(mapStatus==="ready")mapWebRef.current?.injectJavaScript(setSarAssignmentsJavaScript(sarAssignmentsGeoJson));},[sarAssignmentsGeoJson,mapStatus]);
   useEffect(()=>{if(!account){setPaymentRecoveryReady(false);return;}let active=true;(async()=>{try{const[hint,recoverable]=await Promise.all([loadPaymentRecoveryHint(SecureStore),fetchRecoverableAnalyses()]);if(!active)return;setPendingAnalyses(recoverable.items||[]);if(hint?.draftId){const restored=await fetchAnalysisPurchase(hint.draftId);if(active){setPurchase(restored);setScreen("payment");}}}catch{}finally{if(active)setPaymentRecoveryReady(true);}})();return()=>{active=false};},[account]);
   useEffect(() => { orientationCompleted(SecureStore).then((completed) => setOrientationVisible(!completed)).catch(() => setOrientationVisible(true)).finally(() => setOrientationReady(true)); }, []);
   useEffect(() => { SecureStore.getItemAsync("terrain.mapLayers.v1").then((value)=>{const next=normalizeLayerPreferences(value?JSON.parse(value):{});setLayerPreferences(next);setBasemap(next.basemap);}); }, []);
@@ -356,15 +388,17 @@ function TerrainApp() {
   useEffect(() => {
     if (Platform.OS !== "android") return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (mapExpanded) { setMapExpanded(false); return true; }
       if (layerSheetVisible) { setLayerSheetVisible(false); return true; }
       if (showAccount) { setShowAccount(false); return true; }
       if (screen === "payment") { setScreen("setup"); return true; }
       if (screen === "report" || screen === "waypoint") { setScreen("results"); return true; }
+      if (screen === "sar") { void returnFromSar(); return true; }
       if (screen !== "home") { setScreen("home"); return true; }
       return false;
     });
     return () => subscription.remove();
-  }, [layerSheetVisible, screen, showAccount]);
+  }, [layerSheetVisible, mapExpanded, screen, showAccount]);
   useEffect(()=>{if(!analysis||screen!=="results")return;const entity=selectedEntity(resultsUi,analysis);const command={type:resultsUi.selectedEntityType,id:entity?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false};mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify(command)});true;`);},[analysis?.analysisJobId,screen,resultsUi.selectedEntityType,resultsUi.selectedEntityId,resultsUi.activeCategoryFilter]);
   const revealNavigationPanel=useCallback((nativeHandle:number)=>{appScrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(nativeHandle,24,true);},[]);
   const setLayers = (next:any) => { setLayerPreferences(next); SecureStore.setItemAsync("terrain.mapLayers.v1",JSON.stringify(next)); };
@@ -452,6 +486,29 @@ function TerrainApp() {
     try { setError(""); mapCamera.current=null; setScreen("opening"); setSavedAnalysisId(analysisJobId); const next=requireOpenedAnalysis(await fetchAnalysis(analysisJobId),analysisJobId);if(generation!==analysisLoadGeneration.current)return;setInitialFitAnalysisId(analysisJobId);setAnalysis(next);setResultsUi(stateForAnalysis(createResultsState(),analysisJobId));setScreen("results"); }
     catch (nextError) { if(generation!==analysisLoadGeneration.current)return;const cached = await loadOfflinePackage(analysisJobId).catch(() => null); if (cached?.manifest?.analysisJobId===analysisJobId&&cached.manifest.immutable?.analysis?.analysisJobId===analysisJobId) { const immutable = cached.manifest.immutable; const next=withAnalysisBoundary({ ...immutable.analysis, features: immutable.features, relationships: immutable.relationships, waypoints: immutable.waypoints, report: immutable.report },cached.manifest.map?.region); setInitialFitAnalysisId(analysisJobId); setAnalysis(next); setOfflineManifest(cached.manifest); setOfflineStatus("Opened encrypted offline package. Changes will remain pending until sync."); setScreen("results"); } else { setError(nextError instanceof Error ? nextError.message : "Unable to load saved analysis."); setScreen("library"); } }
   };
+
+  async function ensureSarAnalysis(analysisJobId: string) {
+    if (!analysisJobId) return false;
+    if (analysisRef.current?.analysisJobId === analysisJobId) return true;
+    const generation=++analysisLoadGeneration.current;
+    setError(""); setSavedAnalysisId(analysisJobId); setAnalysis(null); setOfflineManifest(null); setInitialFitAnalysisId(null); setResultsUi(createResultsState(analysisJobId)); setNavigationTargetEntity(null); setNavigationRequestNonce(0); mapCamera.current=null;
+    try {
+      const next=requireOpenedAnalysis(await fetchAnalysis(analysisJobId),analysisJobId);
+      if(generation!==analysisLoadGeneration.current)return false;
+      setInitialFitAnalysisId(analysisJobId);setAnalysis(next);setResultsUi(stateForAnalysis(createResultsState(),analysisJobId));return true;
+    } catch (nextError) {
+      if(generation!==analysisLoadGeneration.current)return false;
+      const cached=await loadOfflinePackage(analysisJobId).catch(()=>null);
+      if(cached?.manifest?.analysisJobId===analysisJobId&&cached.manifest.immutable?.analysis?.analysisJobId===analysisJobId){const immutable=cached.manifest.immutable;const next=withAnalysisBoundary({...immutable.analysis,features:immutable.features,relationships:immutable.relationships,waypoints:immutable.waypoints,report:immutable.report},cached.manifest.map?.region);setInitialFitAnalysisId(analysisJobId);setAnalysis(next);setOfflineManifest(cached.manifest);setOfflineStatus("Opened encrypted offline package. Live SAR updates remain subject to network availability.");return true;}
+      setSessionMessage(nextError instanceof Error?nextError.message:"The selected SAR analysis could not be loaded.");return false;
+    }
+  }
+
+  async function returnFromSar() {
+    const target=sar.analysisId||analysisRef.current?.analysisJobId||"";
+    if(target&&await ensureSarAnalysis(target)){setScreen("results");return;}
+    setScreen(analysisRef.current?"results":"home");
+  }
 
   const downloadOffline = async (id: string) => { const controller = new AbortController(); setOfflineDownload({ id, controller }); try { setOfflineStatus("Estimating package…"); const attachmentIds = (await fetchAttachments(id)).items?.map((item: any) => item.id) || []; let manifest = await fetchOfflineManifest(id, attachmentIds); const provider = manifest.map.providers[0]; if (provider) manifest = await fetchOfflineManifest(id, attachmentIds, { provider: provider.id, minZoom: provider.minZoom, maxZoom: Math.min(provider.minZoom + 1, provider.maxZoom) }); await downloadAndSaveOfflinePackage(manifest, { apiBaseUrl: terrainApiBaseUrl, signal: controller.signal, onProgress: (progress: any) => setOfflineStatus(`${progress.completedAssets}/${progress.totalAssets} assets · ${Math.floor((progress.completedBytes / Math.max(1, progress.totalBytes)) * 100)}%`) }); setOfflineStatus("Offline package ready."); } catch (nextError) { setOfflineStatus(nextError instanceof Error && nextError.name === "AbortError" ? "Download canceled; tap Resume / Update to continue." : `Download failed; tap Resume / Update to retry. ${nextError instanceof Error ? nextError.message : ""}`); } finally { setOfflineDownload(null); setOfflinePackages(await listOfflinePackages()); } };
   const syncOffline = async (id: string) => { try { await synchronizeOfflinePackage(id, (operations: any[]) => pushOfflineSync(id, operations), (cursor: number) => pullOfflineSync(id, cursor)); setOfflineStatus("Offline changes synchronized."); setOfflinePackages(await listOfflinePackages()); } catch (nextError) { setOfflineStatus(`Pending sync: ${nextError instanceof Error ? nextError.message : "network unavailable"}`); } };
@@ -560,6 +617,9 @@ function TerrainApp() {
         }
         if(userLocationEnabled&&userLocation)mapWebRef.current?.injectJavaScript(locationFollowRef.current?centerLocationJavaScript(userLocation):updateLocationJavaScript(userLocation));
         mapWebRef.current?.injectJavaScript(setBreadcrumbsJavaScript(breadcrumbGeoJson));
+        mapWebRef.current?.injectJavaScript(setSarPositionsJavaScript(sarPositionsGeoJson,layerPreferences.team?.team_positions!==false));
+        mapWebRef.current?.injectJavaScript(setSarAssignmentsJavaScript(sarAssignmentsGeoJson));
+        if(analysis){const selected=selectedEntity(resultsUi,analysis);mapWebRef.current?.injectJavaScript(`window.__terrainSelect&&window.__terrainSelect(${JSON.stringify({type:resultsUi.selectedEntityType,id:selected?.id||null,category:resultsUi.activeCategoryFilter||null,focus:false})});true;`);}
       }
       if (message.type === "map-camera" && Array.isArray(message.payload?.center)) { mapCamera.current = message.payload; if (initialFitAnalysisId) setInitialFitAnalysisId(null); }
       if (message.type === "result-select" && message.payload?.id && ["waypoint","terrainFeature"].includes(message.payload.entityType)) selectResultEntity(message.payload.entityType,message.payload.id,false);
@@ -582,7 +642,7 @@ function TerrainApp() {
       <Text style={styles.meta}>Analysis layers · boundary is immutable and always shown</Text><View style={styles.row}>{Object.keys(layerPreferences.analysis).filter((key)=>key!=="boundary").map((key)=><ActionButton key={key} label={key} onPress={()=>setLayers(toggleLayer(layerPreferences,"analysis",key))} primary={layerPreferences.analysis[key]}/>)}</View>
       <Text style={styles.meta}>Field layers</Text><View style={styles.row}>{Object.keys(layerPreferences.field).map((key)=><ActionButton key={key} label={key.replace("_"," ")} onPress={()=>setLayers(toggleLayer(layerPreferences,"field",key))} primary={layerPreferences.field[key]}/>)}</View>
       <Text style={styles.meta}>GIS layers</Text><View style={styles.row}>{Object.keys(layerPreferences.gis).map((key)=>{const available=key!=="parcels"||mapConfig.providers.some((p:any)=>p.layers?.some((l:any)=>l.type===key));return <ActionButton key={key} label={available?key:`${key} unavailable`} disabled={!available} onPress={()=>setLayers(toggleLayer(layerPreferences,"gis",key))} primary={layerPreferences.gis[key]}/>})}</View>
-      <Text style={styles.meta}>Team layers</Text><View style={styles.row}><ActionButton label="Team Positions (Live SAR)" onPress={() => setScreen("sar")} /></View>
+      <Text style={styles.meta}>Team layers</Text><View style={styles.row}><ActionButton label="Team Positions" onPress={()=>setLayers(toggleLayer(layerPreferences,"team","team_positions"))} primary={layerPreferences.team?.team_positions!==false}/><ActionButton label="Live SAR Controls" onPress={() => setScreen("sar")} /></View>
     </View>
   );
 
@@ -601,7 +661,7 @@ function TerrainApp() {
           : <Ionicons name={userLocationEnabled ? "locate" : "locate-outline"} size={24} color={userLocationEnabled ? "#091008" : "#f0f3ea"} />}
       </Pressable>;
     return <TerrainMapErrorBoundary resetKey={`${screen}:${analysis?.analysisJobId||"setup"}`} height={mapHeight} onBack={() => setScreen("home")}>
-      <NativeTerrainMap sourceResult={mapSourceResult} height={mapHeight} mapRef={mapWebRef} onMessage={handleMapMessage} onStatusChange={setMapStatus} onBack={() => setScreen("home")} onRetrySource={() => setMapBuildAttempt((value) => value + 1)} offline={usingOfflinePackage} showLocationControl locationControl={locationControl} />
+      <NativeTerrainMap sourceResult={mapSourceResult} height={mapHeight} mapRef={mapWebRef} onMessage={handleMapMessage} onStatusChange={setMapStatus} onBack={() => setScreen("home")} onRetrySource={() => setMapBuildAttempt((value) => value + 1)} offline={usingOfflinePackage} showLocationControl locationControl={locationControl} expanded={mapExpanded} onExpandedChange={setMapExpanded} />
     </TerrainMapErrorBoundary>;
   };
 
@@ -650,7 +710,7 @@ function TerrainApp() {
 
         {screen === "library" && <LibraryScreen library={library} pendingAnalyses={pendingAnalyses} loading={libraryLoading} error={error} offlinePackages={offlinePackages} offlineStatus={offlineStatus} downloadingId={offlineDownload?.id} onPage={loadLibrary} onOpen={openLibraryAnalysis} onResumePending={resumePendingAnalysis} onNew={resetSetup} onDelete={deleteLibraryItems} onReturnCurrent={libraryReturnScreen ? () => { setScreen(libraryReturnScreen); setLibraryReturnScreen(null); } : undefined} onDownload={downloadOffline} onCancel={() => offlineDownload?.controller.abort()} onSync={syncOffline} onRemove={removeOffline} />}
         {screen === "teams" && <TeamsScreen onClose={() => setScreen("home")} />}
-        {screen === "sar" && <SarScreen onClose={() => setScreen("home")} currentLocation={userLocation} onRequestLocation={requestLiveLocation} />}
+        {screen === "sar" && <SarScreen controller={sar} onBackToAnalysis={() => { void returnFromSar(); }} onSelectAnalysis={(id:string) => { void ensureSarAnalysis(id); }} onSessionEnded={() => { void returnFromSar(); }} onRequestLocation={requestLiveLocation} map={renderMap()} teamPositionsVisible={layerPreferences.team?.team_positions!==false} onToggleTeamPositions={()=>setLayers(toggleLayer(layerPreferences,"team","team_positions"))} currentUserId={currentUserId} />}
 
         {screen === "setup" && (
           <View style={styles.card}>

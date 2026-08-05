@@ -112,6 +112,7 @@ test("breadcrumb and live SAR source contain no background-location permission c
   const sources = await Promise.all([
     "../src/NavigationPanel.tsx",
     "../src/SarScreen.tsx",
+    "../src/useSarController.ts",
     "../src/sar-background.js",
     "../src/location-control.js",
     "../src/location-tracking.js",

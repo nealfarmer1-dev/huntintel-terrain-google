@@ -1,5 +1,7 @@
 import React, { Component, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { ActivityIndicator, BackHandler, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { createMapRetryController, parseTerrainMapMessage, terrainMapDiagnostic, TERRAIN_MAP_FAILURE_MESSAGE } from "./map-runtime";
 
@@ -39,13 +41,17 @@ export class TerrainMapErrorBoundary extends Component<{ children: React.ReactNo
   }
 }
 
-export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onStatusChange, onBack, onRetrySource, showLocationControl, locationControl, offline = false, WebViewComponent = WebView }: any) {
+export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onStatusChange, onBack, onRetrySource, showLocationControl, locationControl, offline = false, WebViewComponent = WebView, expanded: controlledExpanded, onExpandedChange }: any) {
   const [status, setStatus] = useState<MapStatus>(sourceResult.ok ? "idle" : "error");
   const [errorMessage, setErrorMessage] = useState(sourceResult.userMessage || TERRAIN_MAP_FAILURE_MESSAGE);
   const [reload, setReload] = useState(0);
+  const [internalExpanded, setInternalExpanded] = useState(false);
   const retry = useRef(createMapRetryController());
   const activeInstance = useRef(reload);
   const previousSourceOk = useRef(sourceResult.ok);
+  const camera = useRef<any>(null);
+  const expanded = typeof controlledExpanded === "boolean" ? controlledExpanded : internalExpanded;
+  const setMapExpanded = (next: boolean) => { if (typeof controlledExpanded !== "boolean") setInternalExpanded(next); onExpandedChange?.(next); };
   activeInstance.current = reload;
 
   const updateStatus = (next: MapStatus) => {
@@ -94,15 +100,27 @@ export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onSt
     const timeout = setTimeout(() => fail("MAP_LOAD_TIMEOUT"), 12000);
     return () => clearTimeout(timeout);
   }, [status, reload]);
-
-  if (!sourceResult.ok) return <View style={[styles.map, { height }]}><View style={styles.overlay}><MapFailureCard message={sourceResult.userMessage} retrying={retry.current.isInFlight()} onRetry={retryMap} onBack={onBack} /></View></View>;
+  useEffect(() => {
+    if (!expanded || Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => { setMapExpanded(false); return true; });
+    return () => subscription.remove();
+  }, [expanded, onExpandedChange]);
 
   const processProps = Platform.OS === "ios"
     ? { onContentProcessDidTerminate: () => { if (activeInstance.current === reload) fail("MAP_CONTENT_PROCESS_TERMINATED", TERRAIN_MAP_FAILURE_MESSAGE, "terrain_map_content_process_terminated"); } }
     : { onRenderProcessGone: () => { if (activeInstance.current === reload) fail("MAP_RENDER_PROCESS_GONE", TERRAIN_MAP_FAILURE_MESSAGE, "terrain_map_content_process_terminated"); } };
 
-  return <View style={[styles.map, { height }]}>
-    <WebViewComponent
+  const expandControl = <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={expanded ? "Exit full-screen map" : "Expand map to full screen"}
+    accessibilityState={{ expanded }}
+    hitSlop={6}
+    onPress={() => setMapExpanded(!expanded)}
+    style={styles.expandControl}
+  ><Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={25} color="#f0f3ea" /></Pressable>;
+
+  const renderSurface = (fullScreen: boolean) => <View style={[styles.map, fullScreen ? styles.fullScreenMap : { height }]}>
+    {sourceResult.ok ? <WebViewComponent
       key={`terrain-map-${reload}`}
       originWhitelist={["*"]}
       {...(Platform.OS === "android" ? { geolocationEnabled: true } : {})}
@@ -124,22 +142,39 @@ export function NativeTerrainMap({ sourceResult, height, mapRef, onMessage, onSt
           terrainMapDiagnostic("terrain_map_message_ignored", { platform: Platform.OS, stage: "bridge", category: parsed.code, setupActive: true });
           return;
         }
-        if (parsed.message.type === "map-ready") ready();
+        if (parsed.message.type === "map-camera") camera.current = parsed.message.payload;
+        if (parsed.message.type === "map-ready") {
+          ready();
+          mapRef?.current?.injectJavaScript?.("window.__terrainResize&&window.__terrainResize();true;");
+          if (camera.current) mapRef?.current?.injectJavaScript?.(`window.__terrainSetCamera&&window.__terrainSetCamera(${JSON.stringify(camera.current)});true;`);
+        }
         if (parsed.message.type === "map-error") fail("MAP_BRIDGE_ERROR");
         onMessage(parsed.message);
       }}
       renderError={() => <View style={styles.webFallback} />}
       {...processProps}
       style={styles.webView}
-    />
-    {status === "loading" && <View pointerEvents="none" style={styles.overlay}><ActivityIndicator color="#d0a65d" /><Text style={styles.meta}>Loading map…</Text></View>}
-    {status === "error" && <View style={styles.overlay}><MapFailureCard message={errorMessage} retrying={retry.current.isInFlight()} onRetry={retryMap} onBack={onBack} /></View>}
+    /> : null}
+    {sourceResult.ok && status === "loading" && <View pointerEvents="none" style={styles.overlay}><ActivityIndicator color="#d0a65d" /><Text style={styles.meta}>Loading map…</Text></View>}
+    {(!sourceResult.ok || status === "error") && <View style={styles.overlay}><MapFailureCard message={sourceResult.ok ? errorMessage : sourceResult.userMessage} retrying={retry.current.isInFlight()} onRetry={retryMap} onBack={onBack} /></View>}
     {showLocationControl && status !== "error" ? locationControl : null}
+    {sourceResult.ok ? expandControl : null}
   </View>;
+
+  if (!expanded) return renderSurface(false);
+  return <>
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.mapPlaceholder, { height }]} />
+    <Modal visible transparent={false} animationType="fade" statusBarTranslucent={false} onRequestClose={() => setMapExpanded(false)}>
+      <SafeAreaView style={styles.fullScreenSafe}>{renderSurface(true)}</SafeAreaView>
+    </Modal>
+  </>;
 }
 
 const styles = StyleSheet.create({
   map: { borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: "#314a35", marginVertical: 14, backgroundColor: "#0b0f0c", position: "relative" },
+  mapPlaceholder: { borderRadius: 18, marginVertical: 14, backgroundColor: "#0b0f0c" },
+  fullScreenSafe: { flex: 1, backgroundColor: "#0b0f0c" },
+  fullScreenMap: { flex: 1, marginVertical: 0, borderRadius: 0, borderWidth: 0 },
   webView: { flex: 1, backgroundColor: "#0b0f0c" },
   webFallback: { flex: 1, backgroundColor: "#0b0f0c" },
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 12, padding: 20, backgroundColor: "rgba(11,15,12,.96)" },
@@ -153,4 +188,5 @@ const styles = StyleSheet.create({
   buttonText: { color: "#f0f3ea", fontWeight: "700" },
   primaryText: { color: "#19140d", fontWeight: "800" },
   disabled: { opacity: .55 },
+  expandControl: { position: "absolute", right: 12, top: 12, zIndex: 12, elevation: 12, width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,29,21,.96)", borderWidth: 1, borderColor: "#758471" },
 });

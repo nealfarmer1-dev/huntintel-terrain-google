@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { breadcrumbsFeatureCollection } from "../src/breadcrumb-geometry.js";
 import { createForegroundLocationController } from "../src/live-location.js";
-import { safeSarFailure, sarPositionPlot, sarStartReadiness } from "../src/sar-workflow.js";
+import { safeSarFailure, sarStartReadiness } from "../src/sar-workflow.js";
 
 test("one foreground watcher drives current location and ignores callbacks after cleanup",async()=>{
   let watchCalls=0,removed=0,callback;const fixes=[];
@@ -22,10 +22,10 @@ test("breadcrumb geometry is analysis-scoped, ordered, deduplicated, and toleran
   assert.equal(feature.features.length,1);assert.deepEqual(feature.features[0].geometry.coordinates,[[10,1],[20,2],[30,3]]);
 });
 
-test("SAR readiness requires an enabled feature, shared analysis, and owner/coordinator role",()=>{assert.equal(sarStartReadiness({liveSarEnabled:false}).ready,false);assert.equal(sarStartReadiness({team:{accessRole:"viewer"},analysis:{id:"a"}}).ready,false);assert.equal(sarStartReadiness({team:{accessRole:"coordinator"},analysis:{id:"a"}}).ready,true);assert.equal(safeSarFailure({code:"FEATURE_DISABLED",status:503}).message,"Live SAR is not currently enabled.");assert.ok(sarPositionPlot([{latitude:30,longitude:-90},{latitude:40,longitude:-80}])[1].xPercent>50)});
+test("SAR readiness requires an enabled feature, shared analysis, and owner/coordinator role",()=>{assert.equal(sarStartReadiness({liveSarEnabled:false}).ready,false);assert.equal(sarStartReadiness({team:{accessRole:"viewer"},analysis:{id:"a"}}).ready,false);assert.equal(sarStartReadiness({team:{accessRole:"coordinator"},analysis:{id:"a"}}).ready,true);assert.equal(safeSarFailure({code:"FEATURE_DISABLED",status:503}).message,"Live SAR is not currently enabled.")});
 
 test("native map updates live sources without rebuilding and offline maps expose breadcrumbs",async()=>{
-  const [app,navigation,sar,offline,background]=await Promise.all([readFile(new URL("../App.tsx",import.meta.url),"utf8"),readFile(new URL("../src/NavigationPanel.tsx",import.meta.url),"utf8"),readFile(new URL("../src/SarScreen.tsx",import.meta.url),"utf8"),readFile(new URL("../src/offline-pipeline.js",import.meta.url),"utf8"),readFile(new URL("../src/navigation-background.js",import.meta.url),"utf8")]);
+  const [app,navigation,sar,controller,offline,background]=await Promise.all([readFile(new URL("../App.tsx",import.meta.url),"utf8"),readFile(new URL("../src/NavigationPanel.tsx",import.meta.url),"utf8"),readFile(new URL("../src/SarScreen.tsx",import.meta.url),"utf8"),readFile(new URL("../src/useSarController.ts",import.meta.url),"utf8"),readFile(new URL("../src/offline-pipeline.js",import.meta.url),"utf8"),readFile(new URL("../src/navigation-background.js",import.meta.url),"utf8")]);
   assert.match(app,/__terrainUpdateLocation/);assert.match(app,/__terrainSetBreadcrumbs/);assert.match(app,/setData/);assert.match(app,/field\.current_location/);assert.match(app,/field\.breadcrumbs/);
-  assert.doesNotMatch(navigation,/watchPositionAsync/);assert.match(navigation,/appendBreadcrumbPoints/);assert.match(sar,/fetchTeamAnalyses/);assert.match(sar,/startInFlight/);assert.match(sar,/liveSarEnabled/);assert.match(offline,/__terrainSetBreadcrumbs/);assert.match(background,/active\.points=\[\.\.\./);
+  assert.doesNotMatch(navigation,/watchPositionAsync/);assert.match(navigation,/appendBreadcrumbPoints/);assert.match(controller,/fetchTeamAnalyses/);assert.match(controller,/startInFlight/);assert.match(sar,/liveSarEnabled/);assert.match(offline,/__terrainSetBreadcrumbs/);assert.match(background,/active\.points=\[\.\.\./);
 });

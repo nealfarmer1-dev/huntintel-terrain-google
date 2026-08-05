@@ -2,7 +2,7 @@
   "expo": {
     "name": "HuntIntel Terrain Google",
     "slug": "huntintel-terrain-google",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/images/icon.png",

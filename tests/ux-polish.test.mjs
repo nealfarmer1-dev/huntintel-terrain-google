@@ -19,7 +19,7 @@ test("Android shell, setup, and processing states expose clear hierarchy and exi
 
 test("map failures stay layout-stable and retain accessible recovery", async () => {
   const map = await read("../src/NativeTerrainMap.tsx");
-  assert.match(map, /style=\{\[styles\.map, \{ height \}\]\}/);
+  assert.match(map, /fullScreen \? styles\.fullScreenMap : \{ height \}/);
   assert.match(map, /Retry terrain map/);
   assert.match(map, /Back from terrain map/);
   assert.match(map, /onRenderProcessGone/);

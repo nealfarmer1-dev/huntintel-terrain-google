@@ -54,7 +54,7 @@ test("native production UI hides infrastructure and raw analysis controls", asyn
   assert.match(map, /setTimeout\(\(\) =>/);
   assert.match(app, /const authenticationFailed = nextError\?\.status === 401/);
   assert.match(app, /Usage and map-layer information could not be refreshed/);
-  assert.match(sar, /__DEV__&&/);
+  assert.match(sar, /__DEV__\s*&&/);
 });
 
 test("Android layout handles system back, keyboard, responsive map height, and onboarding footer", async () => {
