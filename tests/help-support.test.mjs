@@ -35,6 +35,9 @@ test("support constants, content counts, video, and legal destinations are exact
     url: "https://youtube.com/shorts/IkV3SmWBPds",
   });
   assert.equal(GETTING_STARTED_ARTICLES.length, 8);
+  const firstAnalysis = GETTING_STARTED_ARTICLES.find((article) => article.id === "first-analysis");
+  assert.ok(firstAnalysis.steps.includes("Choose Review & Purchase to continue."));
+  assert.ok(!firstAnalysis.steps.includes("Choose Analyze Terrain to continue."));
   assert.equal(SUPPORT_FAQS.length, 20);
   assert.equal(TERMS_URL, "https://app.huntintelapp.com/legal/terms");
   assert.equal(PRIVACY_URL, "https://app.huntintelapp.com/legal/privacy");

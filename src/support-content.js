@@ -49,7 +49,7 @@ export const GETTING_STARTED_ARTICLES = [
       "Review the calculated acreage.",
       "Choose Confirm Acreage & Price.",
       "Review the one-time purchase information.",
-      "Choose Analyze Terrain to continue.",
+      "Choose Review & Purchase to continue.",
       "Open My Analyses to monitor or reopen the completed analysis.",
     ],
     paragraphs: ["Terrain analyses must remain within the acreage limits shown in the app. The exact price is displayed before purchase."],
