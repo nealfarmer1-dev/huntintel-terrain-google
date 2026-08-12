@@ -298,7 +298,7 @@ function TerrainApp() {
         : setupPhase==="quote_stale"
           ? "Your setup changed. Confirm acreage and price again."
           : setupPhase==="quoted"
-            ? "Acreage and price are confirmed. Analyze Terrain is ready."
+            ? "Acreage and price are confirmed. Review & Purchase is ready."
             : "Step 3: confirm server acreage and price.";
   const currentUserId=account?.id??account?.userId??account?.user_id??account?.user?.id??null;
   const sarPositionsGeoJson=useMemo(()=>{const activeSharingId=sar.sharing?.sharingSessionId??sar.sharing?.sharing_session_id??null;const identified=(sar.positions||[]).map((position:any)=>activeSharingId&&String(position.sharingSessionId??position.sharing_session_id??"")===String(activeSharingId)?{...position,isCurrentUser:true}:position);return sarPositionsFeatureCollection(identified,currentUserId);},[sar.positions,sar.sharing,currentUserId]);
@@ -755,7 +755,7 @@ function TerrainApp() {
         {screen === "setup" && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>New Analysis</Text>
-            <Text style={styles.meta}>Name and mode → Draw area → Confirm acreage and price → Analyze Terrain</Text>
+            <Text style={styles.meta}>Name and mode → Draw area → Confirm acreage and price → Review & Purchase</Text>
             <View style={styles.stepHeader}><Text style={styles.stepNumber}>1</Text><Text style={styles.stepTitle}>Name and mode</Text></View>
             <TextInput accessibilityLabel="Analysis name" accessibilityHint="Names this saved terrain analysis" style={styles.input} value={analysisName} onChangeText={(value)=>{invalidatePurchase();setAnalysisName(value)}} placeholder="Enter analysis name" placeholderTextColor="#7f8d7a" maxLength={120} returnKeyType="done" />
             {analysisNameError ? <Text accessibilityRole="alert" style={styles.error}>{analysisNameError}</Text> : null}
@@ -780,7 +780,8 @@ function TerrainApp() {
             {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
             {setupPhase==="quote_stale" && <Text accessibilityLiveRegion="polite" style={styles.staleNotice}>Setup changed. Confirm acreage and price again.</Text>}
             <ActionButton label={setupPhase==="quoted"?"Acreage & Price Confirmed":"Confirm Acreage & Price"} loadingLabel="Checking acreage and price…" loading={quoteLoading} onPress={requestQuote} disabled={!new Set(["ready_for_quote","quote_stale"]).has(setupPhase)} accessibilityHint="Requests the exact acreage and price from the server" />
-            <ActionButton label="Analyze Terrain" onPress={submit} primary disabled={setupPhase!=="quoted"} accessibilityHint={setupPhase==="quoted" ? "Continues to the one-time purchase flow" : setupGuidance} />
+            <ActionButton label="Review & Purchase" onPress={submit} primary disabled={setupPhase!=="quoted"} accessibilityHint={setupPhase==="quoted" ? "Opens the one-time Google Play purchase screen for this terrain analysis" : setupGuidance} />
+            <Text style={styles.meta}>One-time Google Play purchase. Your analysis begins after purchase confirmation.</Text>
             <Text accessibilityLiveRegion="polite" style={setupPhase==="quoted" ? styles.success : styles.meta}>{setupGuidance}</Text>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           </View>
