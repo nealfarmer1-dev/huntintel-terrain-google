@@ -8,6 +8,7 @@ import { clearSession, storeSession } from "./auth";
 import { listOfflinePackages } from "./offline";
 import { PasswordField } from "./PasswordField";
 import { HelpSupportScreen } from "./HelpSupportScreen";
+import { accountSubmissionValidationMessage, changePasswordValidationMessage } from "./account-validation";
 
 type Mode = "login" | "register" | "verify" | "forgot" | "reset" | "security";
 const TERMS_URL = "https://app.huntintelapp.com/legal/terms";
@@ -21,7 +22,7 @@ type Props = {
   onReplayOrientation?: () => void;
   onOpenDownloads?: () => void;
   onOpenAnalyses?: () => void;
-  appVersion?: string;
+  appVersion: string;
   initialMessage?: string;
 };
 
@@ -30,7 +31,7 @@ function quotaCopy(quota: any) {
   return `${(Number(quota.usedBytes || 0) / 1073741824).toFixed(2)} of ${(Number(quota.limitBytes || 0) / 1073741824).toFixed(2)} GiB used (${Number(quota.percentUsed || 0)}%).`;
 }
 
-export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onReplayOrientation, onOpenDownloads, onOpenAnalyses, appVersion = "0.1.2", initialMessage = "" }: Props) {
+export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onReplayOrientation, onOpenDownloads, onOpenAnalyses, appVersion, initialMessage = "" }: Props) {
   const { width } = useWindowDimensions();
   const [mode, setMode] = useState<Mode>(user ? "security" : "login");
   const [email, setEmail] = useState("");
@@ -69,6 +70,11 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
 
   const submit = async () => {
     const paths: Record<string, string> = { login: "/login", register: "/register", verify: "/verify-email", forgot: "/forgot-password", reset: "/reset-password" };
+    const validationMessage = accountSubmissionValidationMessage(mode, { email, password, token, newPassword, confirmPassword });
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     if (mode === "register" && password !== confirmPassword) {
       setMessage("Passwords do not match.");
       return;
@@ -94,6 +100,20 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : "Account request failed."); }
     finally { setBusy(false); }
+  };
+
+  const changePassword = async () => {
+    const validationMessage = changePasswordValidationMessage({ currentPassword: password, newPassword, confirmPassword });
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
+    try {
+      await accountRequest("/change-password", { current_password: password, new_password: newPassword, confirm_password: confirmPassword });
+      setMessage("Password changed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to change password.");
+    }
   };
 
   const signOut = () => {
@@ -142,7 +162,7 @@ export function AccountScreen({ user, onAuthenticated, onSignedOut, onClose, onR
         <PasswordField style={styles.input} value={password} onChangeText={setPassword} placeholder="Current password" placeholderTextColor="#82907e" textContentType="password" autoComplete="current-password" />
         <PasswordField style={styles.input} value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />
         <PasswordField style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor="#82907e" textContentType="newPassword" autoComplete="new-password" />
-        <Button label="Change Password" primary onPress={async () => { if (newPassword !== confirmPassword) { setMessage("Passwords do not match."); return; } try { await accountRequest("/change-password", { current_password: password, new_password: newPassword, confirm_password: confirmPassword }); setMessage("Password changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to change password."); } }} />
+        <Button label="Change Password" primary onPress={changePassword} />
         {!!message && <Text accessibilityLiveRegion="polite" style={styles.meta}>{message}</Text>}
       </Section>
       <Section title="Session">

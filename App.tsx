@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
+import * as Application from "expo-application";
 import * as Location from "expo-location";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -65,6 +66,7 @@ const MAPBOX_ACCESS_TOKEN = resolveMapboxAccessToken({
     process.env.EXPO_PUBLIC_TERRAIN_MAPBOX_ACCESS_TOKEN,
 });
 const HAS_MAPBOX_ACCESS_TOKEN = MAPBOX_ACCESS_TOKEN.length > 0;
+const APP_VERSION = Application.nativeApplicationVersion || "Unavailable";
 
 const ANALYSIS_MODE_OPTIONS = [
   { value: "whitetail", label: "Whitetail" },
@@ -515,7 +517,7 @@ function TerrainApp() {
 
   if (authState === "booting" || authState === "restoring") return <SafeAreaView style={styles.safeArea}><AppLoadingScreen /></SafeAreaView>;
   if (authState === "unavailable") return <SafeAreaView style={styles.safeArea}><ErrorState message={sessionMessage} onRetry={() => setRestoreNonce((value) => value + 1)} /></SafeAreaView>;
-  if (!account || showAccount) return <><AccountScreen key={account ? "authenticated-account" : "login"} user={account || undefined} initialMessage={sessionMessage} onAuthenticated={(user) => { accountRef.current=user; setAccount(user); setSessionMessage(""); setAuthState("authenticated"); }} onSignedOut={handleSignedOut} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion="0.1.2" />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
+  if (!account || showAccount) return <><AccountScreen key={account ? "authenticated-account" : "login"} user={account || undefined} initialMessage={sessionMessage} onAuthenticated={(user) => { accountRef.current=user; setAccount(user); setSessionMessage(""); setAuthState("authenticated"); }} onSignedOut={handleSignedOut} onClose={account ? () => setShowAccount(false) : undefined} onReplayOrientation={() => { void beginOrientationReplay(); }} onOpenDownloads={() => { setShowAccount(false); void loadLibrary(1); }} onOpenAnalyses={() => { setShowAccount(false); void loadLibrary(1); }} appVersion={APP_VERSION} />{account && orientationReady && <OrientationModal visible={orientationVisible} onComplete={finishOrientation} />}</>;
   if (!paymentRecoveryReady) return <SafeAreaView style={styles.safeArea}><AppLoadingScreen message="Restoring your analyses…" /></SafeAreaView>;
 
   const openLibraryAnalysis = async (analysisJobId: string) => {

@@ -2,6 +2,7 @@ import { accessToken, clearSession } from "./auth";
 import { queueOfflineOperation } from "./offline";
 import { requireAnalysisJobId } from "./analysis-results";
 import { resolveTerrainApiBaseUrl } from "./runtime-config";
+import { invalidateSessionIfRequired, isInvalidSessionResponse, requestErrorMessage, requestRequiresAuthentication } from "./request-auth-policy";
 
 const productionBuild =
   typeof __DEV__ !== "undefined"
@@ -28,6 +29,7 @@ export async function request(path, options = {}) {
   const {
     correlationId: suppliedCorrelationId,
     headers: suppliedHeaders = {},
+    requiresAuthentication = requestRequiresAuthentication(path),
     ...requestOptions
   } = options;
   const requestCorrelationId = suppliedCorrelationId || globalThis.crypto?.randomUUID?.() || `android-${Date.now()}`;
@@ -50,17 +52,14 @@ export async function request(path, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const expired = response.status === 401 || payload?.error?.code === "ACCOUNT_ACCESS_REVOKED";
-    const error = new Error(expired ? "Your session has expired. Please sign in again." : payload?.error?.message || "HuntIntel Terrain could not complete that request.");
+    const expired = isInvalidSessionResponse({ requiresAuthentication, status: response.status, code: payload?.error?.code });
+    const error = new Error(requestErrorMessage({ path, status: response.status, serverMessage: payload?.error?.message, sessionInvalid: expired }));
     error.code = payload?.error?.code;
     error.status = response.status;
     error.details = payload?.error?.details;
     error.correlationId = response.headers?.get?.("X-Correlation-ID") || payload?.correlationId || requestCorrelationId;
     error.retryAfter = Number(response.headers?.get?.("Retry-After") || 0) || null;
-    if (expired) {
-      await clearSession();
-      sessionExpiredHandler?.(error);
-    }
+    await invalidateSessionIfRequired({ requiresAuthentication, status: response.status, code: payload?.error?.code, error, clearSession, onSessionExpired: sessionExpiredHandler });
     throw error;
   }
 
