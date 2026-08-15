@@ -33,3 +33,28 @@ export function deriveSetupState({ nameError, polygonValid, quoteLoading, paymen
   if (hadQuote) return "quote_stale";
   return "ready_for_quote";
 }
+
+export function purchaseActionPresentation(setupState, polygonValid) {
+  if (!polygonValid) {
+    return {
+      label: "Select 5–2,000 Acres to Continue",
+      message: "Area must be between 5 and 2,000 acres before continuing.",
+    };
+  }
+  if (setupState === "quoted") {
+    return {
+      label: "Review & Purchase",
+      message: "One-time Google Play purchase. Your analysis begins after purchase confirmation.",
+    };
+  }
+  if (setupState === "quote_stale") {
+    return {
+      label: "Confirm Acreage & Price Again",
+      message: "The analysis setup changed. Confirm acreage and price again before continuing.",
+    };
+  }
+  return {
+    label: "Confirm Acreage & Price First",
+    message: "Confirm the server-calculated acreage and price before continuing.",
+  };
+}

@@ -11,7 +11,7 @@ test("Android shell, setup, and processing states expose clear hierarchy and exi
   assert.match(app, /accessibilityRole="tablist"/);
   assert.match(app, /Name and mode → Draw area → Confirm acreage and price → Review & Purchase/);
   assert.match(app, /Setup changed\. Confirm acreage and price again\./);
-  assert.match(app, /accessibilityHint=\{setupPhase==="quoted" \? "Opens the one-time Google Play purchase screen for this terrain analysis" : setupGuidance\}/);
+  assert.match(app, /accessibilityHint=\{setupPhase==="quoted" \? "Opens the one-time Google Play purchase screen for this terrain analysis" : purchaseAction\.message\}/);
   assert.match(app, /accessibilityLabel="Terrain analysis is running"/);
   assert.match(app, /This may take several minutes/);
   assert.match(app, /View My Analyses/);

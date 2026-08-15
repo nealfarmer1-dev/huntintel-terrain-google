@@ -39,7 +39,7 @@ import { PaymentGate } from "./src/PaymentGate";
 import { buildPolygonFromPoints, calculateApproximateAcreage } from "./src/terrain";
 import { MAPBOX_STYLE_OPTIONS, USGS_3DEP_WMS_BASE, USGS_TERRAIN_OVERLAY_OPTIONS, buildAnalysisRequestPayload, mapboxStyleFor, relationshipsToGeoJson, resolveMapboxAccessToken } from "./src/terrain-map";
 import type { TerrainAnalysisResponse, TerrainWaypoint } from "./src/terrain-contract";
-import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
+import { analysisNameValidationMessage, deriveSetupState, normalizedAnalysisName, purchaseActionPresentation, quoteMatchesSetup, setupConfigurationKey } from "./src/setup-state";
 import { createResultsState, entityGeometry, navigableWaypointById, navigationTarget, selectEntity, selectedEntity, stateForAnalysis, waypointDetails } from "./src/analysis-results";
 import { requireOpenedAnalysis, withAnalysisBoundary } from "./src/analysis-opening";
 import { OrientationModal } from "./src/OrientationModal";
@@ -287,10 +287,12 @@ function TerrainApp() {
   const polygon = useMemo(() => buildPolygonFromPoints(points), [points]);
   const acreage = useMemo(() => (polygon ? Number(calculateApproximateAcreage(polygon).toFixed(2)) : 0), [polygon]);
   const isValid = acreage >= MIN_ACRES && acreage <= MAX_ACRES;
+  const polygonValid=Boolean(polygon&&isValid);
   const analysisNameError=analysisNameValidationMessage(analysisName);
   const currentSetupKey=useMemo(()=>setupConfigurationKey({analysisName,analysisMode,propertyId:null,polygon}),[analysisName,analysisMode,polygon]);
   const quoteCurrent=quoteMatchesSetup({purchase,quotedSetupKey,currentSetupKey});
-  const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid:Boolean(polygon&&isValid),quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
+  const setupPhase=deriveSetupState({nameError:analysisNameError,polygonValid,quoteLoading,paymentBusy:false,processing:screen==="processing",paymentRequired:screen==="payment"&&!purchase?.entitlement,paid:purchase?.entitlement?.status==="active",quoteCurrent,hadQuote});
+  const purchaseAction=purchaseActionPresentation(setupPhase,polygonValid);
   const setupGuidance=analysisNameError
     ? "Step 1: enter an analysis name to continue."
     : !polygon
@@ -782,8 +784,8 @@ function TerrainApp() {
             {purchase?.quote?<View style={styles.purchaseQuote}><Text style={styles.itemTitle}>{purchase.quote.label} — {purchase.quote.displayPrice}</Text><Text style={styles.meta}>{Number(purchase.quote.acreage).toLocaleString()} server-calculated acres</Text><Text style={styles.meta}>One-time purchase. Permanently unlocks this analysis for your account.</Text></View>:<Text style={styles.meta}>Confirm server acreage and price: up to 1,000 acres is $9.99; 1,001–2,000 acres is $14.99.</Text>}
             {setupPhase==="quote_stale" && <Text accessibilityLiveRegion="polite" style={styles.staleNotice}>Setup changed. Confirm acreage and price again.</Text>}
             <ActionButton label={setupPhase==="quoted"?"Acreage & Price Confirmed":"Confirm Acreage & Price"} loadingLabel="Checking acreage and price…" loading={quoteLoading} onPress={requestQuote} disabled={!new Set(["ready_for_quote","quote_stale"]).has(setupPhase)} accessibilityHint="Requests the exact acreage and price from the server" />
-            <ActionButton label="Review & Purchase" onPress={submit} primary disabled={setupPhase!=="quoted"} accessibilityHint={setupPhase==="quoted" ? "Opens the one-time Google Play purchase screen for this terrain analysis" : setupGuidance} />
-            <Text style={styles.meta}>One-time Google Play purchase. Your analysis begins after purchase confirmation.</Text>
+            <Text accessibilityLiveRegion="polite" style={setupPhase==="quoted" ? styles.meta : styles.purchaseBlocker}>{purchaseAction.message}</Text>
+            <ActionButton label={purchaseAction.label} onPress={submit} primary purchaseAction disabled={setupPhase!=="quoted"} accessibilityHint={setupPhase==="quoted" ? "Opens the one-time Google Play purchase screen for this terrain analysis" : purchaseAction.message} />
             <Text accessibilityLiveRegion="polite" style={setupPhase==="quoted" ? styles.success : styles.meta}>{setupGuidance}</Text>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           </View>
@@ -871,6 +873,7 @@ function ActionButton({
   loading = false,
   loadingLabel = "Working…",
   accessibilityHint,
+  purchaseAction = false,
 }: {
   label: string;
   onPress: () => void;
@@ -879,12 +882,13 @@ function ActionButton({
   loading?: boolean;
   loadingLabel?: string;
   accessibilityHint?: string;
+  purchaseAction?: boolean;
 }) {
   const inactive = disabled || loading;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={accessibilityHint} accessibilityState={{ disabled: inactive, selected: primary, busy: loading }} style={({ pressed }) => [styles.button, primary && styles.buttonPrimary, inactive && styles.buttonDisabled, pressed && styles.buttonPressed]} onPress={onPress} disabled={inactive}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={accessibilityHint} accessibilityState={{ disabled: inactive, selected: primary, busy: loading }} style={({ pressed }) => [styles.button, primary && styles.buttonPrimary, purchaseAction && styles.purchaseButton, inactive && styles.buttonDisabled, purchaseAction && inactive && styles.purchaseButtonDisabled, pressed && (!purchaseAction || !inactive) && styles.buttonPressed]} onPress={onPress} disabled={inactive}>
       {loading && <ActivityIndicator size="small" color={primary ? "#1f180f" : "#f0f3ea"} />}
-      <Text style={[styles.buttonText, primary && styles.buttonPrimaryText]}>{loading ? loadingLabel : label}</Text>
+      <Text style={[styles.buttonText, primary && styles.buttonPrimaryText, purchaseAction && styles.purchaseButtonText, purchaseAction && inactive && styles.purchaseButtonDisabledText]}>{loading ? loadingLabel : label}</Text>
     </Pressable>
   );
 }
@@ -1024,8 +1028,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#d0a65d",
     borderColor: "#e5c682",
   },
+  purchaseButton: {
+    width: "100%",
+  },
   buttonDisabled: {
     opacity: 0.45,
+  },
+  purchaseButtonDisabled: {
+    backgroundColor: "#202620",
+    borderColor: "#4b5549",
+    opacity: 1,
   },
   buttonText: {
     color: "#f0f3ea",
@@ -1034,12 +1046,20 @@ const styles = StyleSheet.create({
   buttonPrimaryText: {
     color: "#1f180f",
   },
+  purchaseButtonText: {
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  purchaseButtonDisabledText: {
+    color: "#aeb7aa",
+  },
   buttonPressed: { opacity: .76, transform: [{ scale: .985 }] },
   stepHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
   stepNumber: { width: 28, height: 28, borderRadius: 14, textAlign: "center", textAlignVertical: "center", lineHeight: 28, color: "#19140d", backgroundColor: "#d0a65d", fontWeight: "900" },
   stepTitle: { color: "#f0f3ea", fontSize: 17, fontWeight: "800" },
   selectionStatus: { lineHeight: 21, fontWeight: "700", padding: 12, borderRadius: 12, backgroundColor: "#101610" },
   staleNotice: { color: "#f0d293", lineHeight: 20, padding: 12, borderRadius: 12, backgroundColor: "#332a1d", borderWidth: 1, borderColor: "#5c4c31" },
+  purchaseBlocker: { color: "#c7d1c2", lineHeight: 20, padding: 12, borderRadius: 12, backgroundColor: "#121812", borderWidth: 1, borderColor: "#465143" },
   processingCard: { minHeight: 300, alignItems: "center", justifyContent: "center", padding: 24 },
   mapWeb: {
     height: MAP_HEIGHT,
